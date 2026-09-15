@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Acme Dashboard</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f6f7fb; color: #111827; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 40px; background: #fff; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; }
+  .logo { font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+  nav a { margin-left: 28px; color: #4b5563; text-decoration: none; font-weight: 500; }
+  nav a:hover { color: #111827; }
+  main { max-width: 1100px; margin: 0 auto; padding: 48px 40px; }
+  h1 { font-size: 40px; margin: 0 0 12px; letter-spacing: -0.03em; }
+  p.lead { color: #6b7280; font-size: 18px; margin: 0 0 32px; }
+  .row { display: flex; gap: 16px; align-items: center; margin-bottom: 40px; }
+  input { font: inherit; padding: 14px 16px; border: 1px solid #d1d5db; border-radius: 10px; width: 420px; background: #fff; outline: none; }
+  input:focus { border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,.2); }
+  button { font: inherit; padding: 14px 22px; border-radius: 10px; border: 0; background: #6366f1; color: #fff; font-weight: 600; cursor: pointer; transition: background .15s, transform .1s; }
+  button:hover { background: #4f46e5; }
+  button:active { transform: scale(.97); }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 24px; transition: box-shadow .2s, transform .2s; }
+  .card:hover { box-shadow: 0 12px 30px rgba(17,24,39,.08); transform: translateY(-2px); }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card .n { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }
+  .card .d { color: #6b7280; font-size: 14px; }
+  .toast { position: fixed; right: 28px; bottom: 28px; background: #111827; color: #fff; padding: 14px 18px; border-radius: 12px; opacity: 0; transform: translateY(12px); transition: all .25s; }
+  .toast.show { opacity: 1; transform: none; }
+  section.long { margin-top: 64px; }
+  section.long h2 { font-size: 28px; letter-spacing: -0.02em; }
+  .list { display: grid; gap: 12px; }
+  .item { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 20px; display: flex; justify-content: space-between; }
+  .item .tag { background: #eef2ff; color: #4338ca; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  #status { margin-top: 20px; font-family: ui-monospace, monospace; color: #059669; min-height: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Acme</div>
+  <nav><a href="#">Overview</a><a href="#">Projects</a><a href="#">Settings</a></nav>
+</header>
+<main>
+  <h1>Create a project</h1>
+  <p class="lead">Spin up a new project and deploy it in seconds.</p>
+  <div class="row">
+    <input id="name" placeholder="Project name" autocomplete="off">
+    <button id="create">Create project</button>
+  </div>
+  <div id="status"></div>
+  <div class="cards">
+    <div class="card"><h3>Requests</h3><div class="n">1.2M</div><div class="d">last 24 hours</div></div>
+    <div class="card"><h3>Latency</h3><div class="n">42ms</div><div class="d">p95</div></div>
+    <div class="card"><h3>Errors</h3><div class="n">0.03%</div><div class="d">last 24 hours</div></div>
+  </div>
+  <section class="long">
+    <h2>Recent deployments</h2>
+    <div class="list" id="list"></div>
+  </section>
+</main>
+<div class="toast" id="toast">Project created</div>
+<script>
+  const list = document.getElementById('list');
+  for (let i = 1; i <= 14; i++) {
+    const el = document.createElement('div'); el.className = 'item';
+    el.innerHTML = `<span>deploy-${String(i).padStart(3,'0')} · main · ${i * 7} minutes ago</span><span class="tag">${i % 3 ? 'Ready' : 'Building'}</span>`;
+    list.appendChild(el);
+  }
+  document.getElementById('create').addEventListener('click', () => {
+    const name = document.getElementById('name').value || 'untitled';
+    const status = document.getElementById('status');
+    status.textContent = `Creating ${name}…`;
+    setTimeout(() => {
+      status.textContent = `✔ ${name} deployed to https://${name}.acme.app`;
+      const t = document.getElementById('toast'); t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2200);
+    }, 900);
+  });
+</script>
+</body>
+</html>
