@@ -109,13 +109,30 @@ export interface MotionConfig {
   scrollDuration: number;
 }
 
+/**
+ * How a wait appears in the finished video.
+ * - `"keep"` (default): shown in full, real time. Waiting is the default so a slow step
+ *   such as provisioning is visible rather than silently cut.
+ * - `"trim"`: shortened to `idleTrim.keep`.
+ * - a number: time-lapse, played that many times faster (`8` = 8x).
+ */
+export type WaitEdit = "trim" | "keep" | number;
+
 export interface IdleTrimConfig {
-  /** Trim idle stretches (waiting for navigation, waitFor, etc.). Default true. */
+  /**
+   * Master switch for trimming. Waits play in real time by default; this only governs
+   * waits that explicitly ask to be trimmed with `edit: "trim"`. Default true.
+   */
   enabled: boolean;
   /** Idle stretches longer than this (ms) are shortened. Default 1500. */
   threshold: number;
   /** What an idle stretch is shortened to, in ms. Default 600. */
   keep: number;
+  /**
+   * Never cut inside a camera animation. A cut that overlaps a zoom would otherwise jump
+   * the camera mid-move, which reads as a broken zoom. Default true.
+   */
+  protectCamera: boolean;
 }
 
 export interface BrowserConfig {
@@ -146,6 +163,36 @@ export interface CaptureConfig {
   quality: number;
 }
 
+export interface KeysConfig {
+  /**
+   * Which key presses get an on-screen overlay.
+   * `shortcuts`: chords and special keys from press() only. `all`: also typed text.
+   * `manual`: only steps that pass `showKeys: true`. `off`: never.
+   */
+  mode: "shortcuts" | "all" | "manual" | "off";
+  /** How long a shortcut stays visible after the last key, ms. Default 1200. */
+  hold: number;
+  /** Typed characters closer together than this join one pill, ms. Default 900. */
+  gap: number;
+  /** Glyph style: ⌘ ⌥ ⌃ ⇧ for mac, Ctrl/Alt/Win for windows. Default mac. */
+  platform: "mac" | "windows";
+  /** Vertical placement. Default bottom. */
+  position: "bottom" | "top";
+  /** Distance from the frame edge as a fraction of output height. Default 0.1. */
+  offset: number;
+  /** Font size in output px at 1080p. Default 30. */
+  fontSize: number;
+}
+
+export interface ExploreConfig {
+  /** Where `avr explore` writes the inventory index. Default ".avr/inventory.json". */
+  index: string;
+  /** Max elements to inventory per page. Default 250. */
+  max: number;
+  /** Scroll the page while inventorying so off-screen elements are included. Default true. */
+  scroll: boolean;
+}
+
 export interface DryRunConfig {
   /** Scale screenshots down by this factor for cheaper contact sheets. Default 0.5. */
   scale: number;
@@ -167,7 +214,11 @@ export interface ScenarioConfig {
   idleTrim: IdleTrimConfig;
   browser: BrowserConfig;
   capture: CaptureConfig;
+  keys: KeysConfig;
   dryRun: DryRunConfig;
+  explore: ExploreConfig;
+  /** Path to the inventory index used to resolve @eNN handles. Default ".avr/inventory.json". */
+  indexPath?: string;
 }
 
 /** Deep partial helper for user-facing config. */
@@ -201,13 +252,13 @@ export type RecordedEvent =
   | { type: "mouse"; t: number; x: number; y: number }
   | { type: "mousedown"; t: number; x: number; y: number; button: string }
   | { type: "mouseup"; t: number; x: number; y: number; button: string }
-  | { type: "key"; t: number; key: string; x?: number; y?: number }
+  | { type: "key"; t: number; key: string; x?: number; y?: number; source?: "press" | "type"; show?: boolean }
   | { type: "scroll"; t: number; dx: number; dy: number }
   | { type: "zoom"; t: number; target: CameraTarget; duration: number; easing: Easing; follow?: boolean; source: "manual" | "auto" }
   | { type: "zoomOut"; t: number; duration: number; easing: Easing; source: "manual" | "auto" }
   | { type: "autoZoomOff"; t: number }
   | { type: "autoZoomOn"; t: number }
-  | { type: "idle"; t: number; end: number; reason: string }
+  | { type: "idle"; t: number; end: number; reason: string; edit?: WaitEdit }
   | { type: "step"; t: number; name: string; detail?: string }
   | { type: "recording"; t: number; state: "start" | "pause" | "resume" | "stop" };
 

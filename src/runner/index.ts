@@ -62,8 +62,6 @@ export async function recordScenario(scenario: Scenario, opts: RecordOptions): P
   const duration = Date.now() - started;
   await launched.close();
 
-  if (error) throw error;
-
   // Trim frames that fall outside recording segments (pre-roll setup).
   const segments = recordingSegments(session.events, duration);
   const kept = frames.filter((f) => segments.some(([a, b]) => f.t >= a - 100 && f.t <= b + 100));
@@ -85,6 +83,12 @@ export async function recordScenario(scenario: Scenario, opts: RecordOptions): P
   const manifestPath = join(outDir, "manifest.json");
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   log(`Captured ${kept.length} frames over ${(duration / 1000).toFixed(1)}s -> ${manifestPath}`);
+  // A failed run keeps what it captured: minutes of footage should never vanish with the error.
+  if (error) {
+    const e = error instanceof Error ? error : new Error(String(error));
+    if (kept.length) e.message += `\n\nThe ${kept.length} frames captured before the failure were kept. \`avr render ${opts.outDir}\` renders them as a partial video.`;
+    throw e;
+  }
   return { outDir, manifestPath, manifest };
 }
 
@@ -124,6 +128,8 @@ function safeUnlink(p: string) {
 
 export interface DryRunOptions {
   outDir: string;
+  /** Skip pacing (instant typing, no waits). Quicker, but no longer the same run the recording will be. */
+  fast?: boolean;
   config?: UserScenarioConfig;
   log?: (msg: string) => void;
 }
@@ -136,8 +142,10 @@ export interface DryRunResult {
 }
 
 /**
- * Execute the scenario without animation or capture, taking a screenshot after every
- * action. Lets an agent validate selectors and app state cheaply before a real recording.
+ * Execute the scenario exactly as a recording would (same typing cadence, waits, cursor
+ * travel and click holds) but without capturing or rendering, taking a screenshot after
+ * every action. Because the page sees the same input at the same pace, a dry run that
+ * passes is a recording that will pass. `fast` trades that guarantee for speed.
  */
 export async function dryRunScenario(scenario: Scenario, opts: DryRunOptions): Promise<DryRunResult> {
   const log = opts.log ?? (() => {});
@@ -156,7 +164,7 @@ export async function dryRunScenario(scenario: Scenario, opts: DryRunOptions): P
   let index = 0;
   const start = Date.now();
 
-  const session = new Session(page, { ...config, viewport }, () => Date.now() - start, { dry: true }, {
+  const session = new Session(page, { ...config, viewport }, () => Date.now() - start, { dry: true, fast: opts.fast }, {
     onStep: async (name, detail) => {
       index++;
       const file = `step-${String(index).padStart(3, "0")}.jpg`;

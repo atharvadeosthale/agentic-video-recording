@@ -8,7 +8,7 @@ import { ensureChromium, resolveExecutablePath } from "../browser.js";
 import { spawnFfmpeg, runFfmpeg } from "../ffmpeg.js";
 import { clamp, lerp } from "../motion.js";
 import { compositorHtml } from "./page.js";
-import { buildTimeline, outToSource, planCamera, makeCameraEvaluator, extractCursor, cursorAt, frameIndexAt, crossesCut } from "./plan.js";
+import { buildTimeline, cameraBusyWindows, outToSource, planCamera, makeCameraEvaluator, extractCursor, cursorAt, frameIndexAt, crossesCut, planKeyToasts, keyHudAt, type KeyHud } from "./plan.js";
 
 export interface RenderOptions {
   /** Directory containing manifest.json and frames/. */
@@ -36,6 +36,7 @@ interface FrameInstruction {
   cursor: { x: number; y: number; pressed: boolean; visible: boolean } | null;
   ripples: { x: number; y: number; p: number }[];
   uiScale: number;
+  hud: KeyHud | null;
 }
 
 /**
@@ -55,11 +56,14 @@ export async function renderRecording(opts: RenderOptions): Promise<RenderResult
   if (!manifest.frames.length) throw new Error("Recording has no frames. Did the scenario call startRecording() and do something visible?");
 
   // ---- Plan every frame up front (cheap, and lets workers be stateless) ----
-  const { ranges, outDuration } = buildTimeline(manifest, cfg);
-  const totalFrames = Math.max(1, Math.ceil((outDuration / 1000) * fps));
   const vw = manifest.viewport.width, vh = manifest.viewport.height;
-  const camAt = makeCameraEvaluator(planCamera(manifest, cfg), vw, vh);
+  const cameraKeys = planCamera(manifest, cfg);
+  // Cuts must not land inside a camera move, so the timeline is built knowing where they are.
+  const { ranges, outDuration } = buildTimeline(manifest, cfg, cameraBusyWindows(cameraKeys));
+  const totalFrames = Math.max(1, Math.ceil((outDuration / 1000) * fps));
+  const camAt = makeCameraEvaluator(cameraKeys, vw, vh);
   const { samples, downs } = extractCursor(manifest.events);
+  const keyToasts = planKeyToasts(manifest.events, cfg);
 
   const pad = cfg.frame.padding;
   const availW = W - 2 * pad, availH = H - 2 * pad;
@@ -112,6 +116,7 @@ export async function renderRecording(opts: RenderOptions): Promise<RenderResult
       cursor: cfg.cursor.enabled ? { ...toOut(cur), pressed, visible: samples.length > 0 } : null,
       ripples,
       uiScale: uiScale * Math.sqrt(s),
+      hud: keyHudAt(keyToasts, tSrc),
     });
   }
 
@@ -135,6 +140,7 @@ export async function renderRecording(opts: RenderOptions): Promise<RenderResult
     backgroundFit: typeof bg === "object" ? bg.fit : undefined,
     viewport: { width: vw, height: vh },
     shadow: cfg.frame.shadow, borderRadius: cfg.frame.borderRadius, cursor: { ...cfg.cursor, size: resolveCursorSize(cfg.cursor.size, H) },
+    keys: { ...cfg.keys, fontSize: cfg.keys.fontSize * (H / 1080) },
     content,
   };
   const lossless = cfg.output.lossless;

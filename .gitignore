@@ -3,3 +3,4 @@ dist
 recordings
 *.log
 .DS_Store
+.avr

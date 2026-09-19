@@ -134,7 +134,45 @@ export const compositorHtml = `<!doctype html>
       }
       ctx.restore();
     }
+    if (f.hud) drawHud(f.hud);
     return true;
   };
+
+  // Screen Studio style key pill, fixed on screen (not affected by the camera).
+  function drawHud(h) {
+    const fs = cfg.keys.fontSize, pad = fs * 0.8, capPad = fs * 0.65, gapKeys = fs * 0.3, gapGroups = fs * 0.8, r = fs * 0.4;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, h.alpha));
+    ctx.font = '600 ' + fs + 'px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textBaseline = 'middle';
+    const capH = fs * 1.7;
+    // Measure
+    const groups = h.groups.map((g) => g.map((label) => ({ label, w: ctx.measureText(label).width + capPad * 2 })));
+    let total = 0;
+    groups.forEach((g, gi) => { g.forEach((k, ki) => { total += k.w + (ki ? gapKeys : 0); }); if (gi) total += gapGroups; });
+    const pillW = total + pad * 2, pillH = capH + pad * 2;
+    const x = (W - pillW) / 2;
+    const y = cfg.keys.position === 'top' ? H * cfg.keys.offset : H - H * cfg.keys.offset - pillH;
+    ctx.shadowBlur = fs * 0.8; ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowOffsetY = fs * 0.15;
+    ctx.fillStyle = 'rgba(18,18,22,0.82)';
+    roundRect(x, y, pillW, pillH, pillH / 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    let cx = x + pad;
+    for (const g of groups) {
+      for (let ki = 0; ki < g.length; ki++) {
+        const k = g[ki];
+        if (h.kind === 'shortcut') {
+          ctx.fillStyle = 'rgba(255,255,255,0.14)';
+          roundRect(cx, y + pad, k.w, capH, r); ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+        }
+        ctx.fillStyle = '#fff';
+        ctx.fillText(k.label, cx + capPad, y + pad + capH / 2 + fs * 0.05);
+        cx += k.w + gapKeys;
+      }
+      cx += gapGroups - gapKeys;
+    }
+    ctx.restore();
+  }
 })();
 </script></body></html>`;

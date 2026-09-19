@@ -1,10 +1,43 @@
+import { readFileSync, existsSync } from "node:fs";
 import type { Locator, Page } from "playwright";
-import type { CameraTarget, Easing, Point, Rect, RecordedEvent, ScenarioConfig } from "../types.js";
+import type { CameraTarget, Easing, Point, Rect, RecordedEvent, ScenarioConfig, WaitEdit } from "../types.js";
 import { clamp, curvedPath, mulberry32, resolveEasing, sleep } from "../motion.js";
 import { resolveCursorSpeed } from "../config.js";
+import type { InventoryPage } from "../inventory.js";
+import {
+  DEFAULT_INDEX_PATH,
+  addressOf,
+  targetOf,
+  candidateLocators,
+  findEntry,
+  normalizeIndex,
+  pagesWithHandle,
+  isHandle,
+  isRoleTarget,
+  isTextTarget,
+  resolveTextTarget,
+  samePage,
+  resolveRoleTarget,
+  findAllRoleTargets,
+  type AvrIndex,
+  type Match,
+  type TextTarget,
+  type RoleTarget,
+} from "../resolver.js";
 
-/** Anything that can be pointed at: a selector, a Playwright locator, a point, or a rectangle. */
-export type Target = string | Locator | Point | Rect | { x: number | string; y: number | string };
+/**
+ * Anything that can be pointed at, in order of how durable the address is:
+ * a `@eNN` handle from `avr explore`, a `{ role, name }` pair, a Playwright locator,
+ * a CSS selector, a point, or a rectangle.
+ */
+export type Target =
+  | string
+  | Locator
+  | Point
+  | Rect
+  | { x: number | string; y: number | string }
+  | RoleTarget
+  | TextTarget;
 
 export interface MoveOptions {
   /** Travel duration in ms. Derived from distance when omitted. */
@@ -36,6 +69,8 @@ export interface TypeOptions {
   click?: boolean;
   /** Pause after typing, ms. Default 200. */
   settle?: number;
+  /** Force the typed text on or off in the on-screen key overlay, overriding keys.mode. */
+  showKeys?: boolean;
 }
 
 export interface ScrollOptions {
@@ -68,8 +103,14 @@ export interface SessionHooks {
 }
 
 export interface SessionMode {
-  /** Dry runs skip animation and timing. */
+  /** A dry run does not capture frames. Its pacing is the same as a recording unless `fast` is set. */
   dry: boolean;
+  /**
+   * Skip all pacing: no waits, no cursor travel, text inserted in one go. The page then sees
+   * something a recording never does, so a fast run can pass where the recording fails (or
+   * the reverse). Used by the live session, where an agent is waiting on each step.
+   */
+  fast?: boolean;
 }
 
 /**
@@ -83,6 +124,9 @@ export class Session {
   private recordingState: "idle" | "recording" | "paused" | "stopped" = "idle";
   private rng: () => number;
   private manualZoomActive = false;
+  private index: AvrIndex | null = null;
+  private indexLoaded = false;
+  private waitEditStack: WaitEdit[][] = [];
 
   constructor(
     readonly page: Page,
@@ -161,37 +205,167 @@ export class Session {
   // Navigation and waiting
   // ----------------------------------------------------------------------
 
-  async goto(url: string, opts: { waitUntil?: "load" | "domcontentloaded" | "networkidle" | "commit" } = {}) {
+  async goto(url: string, opts: { waitUntil?: "load" | "domcontentloaded" | "networkidle" | "commit"; edit?: WaitEdit } = {}) {
     const t = this.now();
     await this.page.goto(url, { waitUntil: opts.waitUntil ?? "load" });
-    this.log({ type: "idle", t, end: this.now(), reason: `goto ${url}` });
+    this.log({ type: "idle", t, end: this.now(), reason: `goto ${url}`, edit: opts.edit });
     await this.step("goto", url);
   }
 
   /** Wait for an element to reach a state. Time spent here is trimmed in post when idleTrim is on. */
-  async waitFor(target: string | Locator, opts: { state?: "visible" | "attached" | "hidden" | "detached"; timeout?: number } = {}) {
+  async waitFor(target: Target, opts: { state?: "visible" | "attached" | "hidden" | "detached"; timeout?: number; edit?: WaitEdit } = {}) {
     const t = this.now();
-    await this.locator(target).waitFor({ state: opts.state ?? "visible", timeout: opts.timeout });
-    this.log({ type: "idle", t, end: this.now(), reason: `waitFor ${describe(target)}` });
+    const state = opts.state ?? "visible";
+    const timeout = opts.timeout ?? this.config.browser.timeout;
+    try {
+      if (isRoleTarget(target) || isTextTarget(target)) {
+        // A role+name or text target can appear, change name, or disappear, so poll for it
+        // rather than resolving once and waiting on a locator that may not exist yet.
+        await this.pollRoleTarget(target, state, timeout);
+      } else {
+        const loc = await this.toLocator(target);
+        await loc.waitFor({ state, timeout });
+      }
+    } catch (e) {
+      throw new Error(`waitFor ${describe(target)} failed: ${(e as Error).message}`);
+    }
+    this.log({ type: "idle", t, end: this.now(), reason: `waitFor ${describe(target)}`, edit: opts.edit });
+  }
+
+  /** Poll a role+name target until it appears (or leaves), reporting what is on the page on timeout. */
+  private async pollRoleTarget(target: RoleTarget | TextTarget, state: string, timeout: number) {
+    const wantGone = state === "hidden" || state === "detached";
+    const deadline = Date.now() + timeout;
+    let last: unknown;
+    while (Date.now() < deadline) {
+      try {
+        const { locator } = isTextTarget(target)
+          ? await resolveTextTarget(this.page, target)
+          : await resolveRoleTarget(this.page, target);
+        await locator.waitFor({ state: "attached", timeout: 500 });
+        if (!wantGone) return;
+      } catch (e) {
+        // Several matches still means it is on the page, which is all a wait asks.
+        if (/matched \d+ elements/.test((e as Error).message)) {
+          if (!wantGone) return;
+        } else {
+          last = e;
+          if (wantGone) return;
+        }
+      }
+      await sleep(200);
+    }
+    if (last) throw last;
+    throw new Error(`${describe(target)} did not ${wantGone ? "disappear" : "appear"} within ${timeout}ms.`);
   }
 
   /** Wait for a URL (string, glob or regex). */
-  async waitForURL(url: string | RegExp, opts: { timeout?: number } = {}) {
+  async waitForURL(url: string | RegExp, opts: { timeout?: number; edit?: WaitEdit } = {}) {
     const t = this.now();
-    await this.page.waitForURL(url, opts);
-    this.log({ type: "idle", t, end: this.now(), reason: `waitForURL ${url}` });
+    await this.page.waitForURL(url, { timeout: opts.timeout });
+    this.log({ type: "idle", t, end: this.now(), reason: `waitForURL ${url}`, edit: opts.edit });
   }
 
   /** Wait for the network to go quiet. */
-  async waitForNetworkIdle(opts: { timeout?: number } = {}) {
+  async waitForNetworkIdle(opts: { timeout?: number; edit?: WaitEdit } = {}) {
     const t = this.now();
-    await this.page.waitForLoadState("networkidle", opts);
-    this.log({ type: "idle", t, end: this.now(), reason: "networkidle" });
+    await this.page.waitForLoadState("networkidle", { timeout: opts.timeout });
+    this.log({ type: "idle", t, end: this.now(), reason: "networkidle", edit: opts.edit });
+  }
+
+  /**
+   * Wait until the page is actually usable: network quiet and the interactive element
+   * count stable. Single-page apps render after `load`, so `goto` alone can hand back a
+   * skeleton. Call this after navigation instead of guessing a fixed wait.
+   */
+  async readyForInteraction(opts: { timeout?: number; settle?: number; edit?: WaitEdit } = {}) {
+    const t = this.now();
+    const timeout = opts.timeout ?? this.config.browser.timeout;
+    const deadline = Date.now() + timeout;
+    await this.page
+      .waitForLoadState("networkidle", { timeout: Math.min(timeout, 20000) })
+      .catch(() => {});
+
+    let prev = -1;
+    let stable = 0;
+    while (Date.now() < deadline) {
+      const count = await this.page
+        .evaluate(() => {
+          let n = 0;
+          for (const el of document.querySelectorAll("a[href], button, input, select, textarea, [role], summary, h1, h2, h3")) {
+            const r = el.getBoundingClientRect();
+            if (r.width >= 1 && r.height >= 1) n++;
+          }
+          return n;
+        })
+        .catch(() => prev);
+      if (count === prev && count > 0) stable++;
+      else {
+        stable = 0;
+        prev = count;
+      }
+      if (stable >= 2) break;
+      await sleep(300);
+    }
+    if (opts.settle) await sleep(opts.settle);
+    const reason = `ready (${prev} interactive elements)`;
+    this.log({ type: "idle", t, end: this.now(), reason, edit: opts.edit });
+    await this.step("ready", `${prev}`);
+  }
+
+  /** Alias of readyForInteraction, for terse scenarios. */
+  ready(opts: { timeout?: number; settle?: number; edit?: WaitEdit } = {}) {
+    return this.readyForInteraction(opts);
+  }
+
+  /**
+   * Apply an edit mode to the wait(s) a callback performs. Use it when a slow step should
+   * be shown rather than trimmed:
+   *
+   * ```ts
+   * await s.hold("keep", () => s.waitForURL(/sql/, { timeout: 300000 }));   // real time
+   * await s.hold(8,      () => s.waitForURL(/sql/, { timeout: 300000 }));   // 8x time-lapse
+   * ```
+   */
+  async hold<T>(edit: WaitEdit, fn: () => Promise<T> | T): Promise<T> {
+    return this.withWaitEdit(edit, fn);
+  }
+
+  /** Alias of `hold("keep", fn)`: show this wait in full, real time. */
+  async keep<T>(fn: () => Promise<T> | T): Promise<T> {
+    return this.withWaitEdit("keep", fn);
+  }
+
+  /** Show this wait as a time-lapse, `factor` times faster. */
+  async lapse<T>(factor: number, fn: () => Promise<T> | T): Promise<T> {
+    return this.withWaitEdit(factor, fn);
+  }
+
+  /** Opt in to shortening this wait to `idleTrim.keep`. Waits are kept by default. */
+  async trim<T>(fn: () => Promise<T> | T): Promise<T> {
+    return this.withWaitEdit("trim", fn);
+  }
+
+  private async withWaitEdit<T>(edit: WaitEdit, fn: () => Promise<T> | T): Promise<T> {
+    const before = this.events.length;
+    const pending: WaitEdit[] = [];
+    this.waitEditStack.push(pending);
+    try {
+      return await fn();
+    } finally {
+      this.waitEditStack.pop();
+      // Any idle events recorded during the callback inherit this edit mode.
+      for (let i = before; i < this.events.length; i++) {
+        const ev = this.events[i];
+        if (ev.type === "idle") ev.edit = edit;
+      }
+      void pending;
+    }
   }
 
   /** Intentional pause that stays in the video. */
   async wait(ms: number) {
-    if (this.mode.dry) return;
+    if (this.mode.fast) return;
     await sleep(ms);
   }
 
@@ -207,14 +381,84 @@ export class Session {
   // Pointer
   // ----------------------------------------------------------------------
 
+  /**
+   * Load the inventory written by `avr explore`. Handles like `@e12` resolve against
+   * it. Missing file is not an error: selectors keep working without it.
+   */
+  private loadIndex(): AvrIndex | null {
+    if (this.indexLoaded) return this.index;
+    this.indexLoaded = true;
+    const path = this.config.indexPath ?? this.config.explore?.index ?? DEFAULT_INDEX_PATH;
+    try {
+      if (existsSync(path)) this.index = normalizeIndex(JSON.parse(readFileSync(path, "utf8")) as AvrIndex);
+    } catch {
+      this.index = null;
+    }
+    return this.index;
+  }
+
+  /** A CSS selector or Playwright locator, resolved synchronously. Selectors pass through. */
   locator(target: string | Locator): Locator {
     return typeof target === "string" ? this.page.locator(target).first() : target;
   }
 
+  /**
+   * Resolve any addressable target to a locator. Handles and role+name pairs are
+   * resolved against the live page so a stale or ambiguous address fails with advice
+   * rather than acting on the wrong element.
+   */
+  private async toLocator(target: Target): Promise<Locator> {
+    if (isLocator(target)) return target;
+
+    if (typeof target === "string") {
+      if (!isHandle(target)) return this.page.locator(target).first();
+      const entry = this.findByHandle(target);
+      if (!entry) {
+        const collisions = this.handleCollisions(target);
+        throw new Error(
+          collisions.length > 1
+            ? `${target} is defined on ${collisions.length} pages (${collisions.join(", ")}) and not on ${this.page.url()}. Handles are per page: run \`avr explore\` for this page, or address the element by role+name.`
+            : `${target} is not in the inventory for ${this.page.url()}. Run \`avr explore\` to refresh it, or address the element by role+name instead.`,
+        );
+      }
+      for (const cand of candidateLocators(this.page, entry)) {
+        if ((await cand.locator.count().catch(() => 0)) >= 1) return cand.locator.first();
+      }
+      // Nothing matched: fall back to the recorded role+name so the caller gets a real error.
+      const fallback = await this.toLocator(targetOf(entry));
+      return fallback;
+    }
+
+    if (isRoleTarget(target)) {
+      const { locator } = await resolveRoleTarget(this.page, target);
+      return locator;
+    }
+
+    if (isTextTarget(target)) {
+      const { locator } = await resolveTextTarget(this.page, target);
+      return locator;
+    }
+
+    throw new Error(`Cannot use ${describe(target)} for this action: pass a selector, a @eNN handle, or a { role, name } target.`);
+  }
+
+  /** Pages in the index that also define this handle, so the error can explain a collision. */
+  private handleCollisions(handle: string): string[] {
+    const index = this.loadIndex();
+    return index ? pagesWithHandle(index, handle) : [];
+  }
+
+  /** Handles resolve against the page that defined them, never a same-numbered element elsewhere. */
+  private findByHandle(handle: string) {
+    const index = this.loadIndex();
+    if (!index) return undefined;
+    return findEntry(index, handle, this.page.url());
+  }
+
   /** Resolve a target to a CSS px rectangle, scrolling it into view smoothly when needed. */
   async resolveRect(target: Target, opts: { scrollIntoView?: boolean } = {}): Promise<Rect> {
-    if (typeof target === "string" || isLocator(target)) {
-      const loc = this.locator(target);
+    if (typeof target === "string" || isLocator(target) || isRoleTarget(target) || isTextTarget(target)) {
+      const loc = await this.toLocator(target);
       await loc.waitFor({ state: "visible" });
       let box = await loc.boundingBox();
       if (!box) throw new Error(`Target not visible: ${describe(target)}`);
@@ -259,7 +503,7 @@ export class Session {
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
     if (dist < 0.5) return;
     const m = this.config.motion;
-    if (this.mode.dry) {
+    if (this.mode.fast) {
       await this.page.mouse.move(to.x, to.y);
       this.cursor = to;
       this.log({ type: "mouse", t: this.now(), x: to.x, y: to.y });
@@ -292,13 +536,13 @@ export class Session {
       await this.page.mouse.down({ button });
       this.pressed = true;
       this.log({ type: "mousedown", t: this.now(), x: this.cursor.x, y: this.cursor.y, button });
-      if (!this.mode.dry) await sleep(opts.hold ?? this.config.motion.clickHold);
+      if (!this.mode.fast) await sleep(opts.hold ?? this.config.motion.clickHold);
       await this.page.mouse.up({ button });
       this.pressed = false;
       this.log({ type: "mouseup", t: this.now(), x: this.cursor.x, y: this.cursor.y, button });
-      if (count > 1 && i < count - 1 && !this.mode.dry) await sleep(80);
+      if (count > 1 && i < count - 1 && !this.mode.fast) await sleep(80);
     }
-    if (!this.mode.dry) await sleep(opts.settle ?? 150);
+    if (!this.mode.fast) await sleep(opts.settle ?? 150);
     await this.step("click", describe(target));
   }
 
@@ -317,7 +561,7 @@ export class Session {
     await this.page.mouse.down();
     this.pressed = true;
     this.log({ type: "mousedown", t: this.now(), x: this.cursor.x, y: this.cursor.y, button: "left" });
-    if (!this.mode.dry) await sleep(120);
+    if (!this.mode.fast) await sleep(120);
     await this.moveToPointFor(to, opts);
     await this.page.mouse.up();
     this.pressed = false;
@@ -338,8 +582,8 @@ export class Session {
     const wpm = opts.wpm ?? m.wpm;
     const jitter = opts.jitter ?? m.typingJitter;
     const base = 60000 / (wpm * 5);
-    const at = { x: this.cursor.x, y: this.cursor.y };
-    if (opts.instant || this.mode.dry) {
+    const at = { x: this.cursor.x, y: this.cursor.y, source: "type" as const, show: opts.showKeys };
+    if (opts.instant || this.mode.fast) {
       await this.page.keyboard.insertText(text);
       this.log({ type: "key", t: this.now(), key: "insertText", ...at });
     } else {
@@ -362,15 +606,15 @@ export class Session {
         await sleep(delay);
       }
     }
-    if (!this.mode.dry) await sleep(opts.settle ?? 200);
+    if (!this.mode.fast) await sleep(opts.settle ?? 200);
     await this.step("type", text.length > 40 ? text.slice(0, 40) + "…" : text);
   }
 
-  /** Press a key or chord, e.g. "Enter", "Control+K". */
-  async press(key: string, opts: { settle?: number } = {}) {
+  /** Press a key or chord, e.g. "Enter", "Control+K". `showKeys` overrides the keys.mode overlay rule. */
+  async press(key: string, opts: { settle?: number; showKeys?: boolean } = {}) {
     await this.page.keyboard.press(key);
-    this.log({ type: "key", t: this.now(), key, x: this.cursor.x, y: this.cursor.y });
-    if (!this.mode.dry) await sleep(opts.settle ?? 150);
+    this.log({ type: "key", t: this.now(), key, x: this.cursor.x, y: this.cursor.y, source: "press", show: opts.showKeys });
+    if (!this.mode.fast) await sleep(opts.settle ?? 150);
     await this.step("press", key);
   }
 
@@ -382,29 +626,29 @@ export class Session {
    * Scroll by a delta with an eased animation. Scrolls the document by default, or the
    * container given in `within`. Programmatic, so it does not depend on where the pointer is.
    */
-  async scroll(opts: ScrollOptions & { within?: string | Locator } = {}) {
+  async scroll(opts: ScrollOptions & { within?: Target } = {}) {
     const dx = opts.dx ?? 0, dy = opts.dy ?? 0;
     if (dx === 0 && dy === 0) return;
-    const duration = this.mode.dry ? 0 : (opts.duration ?? this.config.motion.scrollDuration);
+    const duration = this.mode.fast ? 0 : (opts.duration ?? this.config.motion.scrollDuration);
     const table = easingTable(resolveEasing(opts.easing ?? "smooth"));
     const t0 = this.now();
-    const handle = opts.within ? await this.locator(opts.within).elementHandle() : null;
+    const handle = opts.within ? await (await this.toLocator(opts.within)).elementHandle() : null;
     await this.page.evaluate(animateScroll, { el: handle, dx, dy, duration, table });
     this.log({ type: "scroll", t: t0, dx, dy });
-    if (!this.mode.dry) await sleep(100);
+    if (!this.mode.fast) await sleep(100);
     await this.step("scroll", `${dx},${dy}`);
   }
 
   /** Smoothly scroll the element's scroll container until the element sits at the given block position. */
-  async scrollTo(target: string | Locator, opts: ScrollOptions = {}) {
-    const loc = this.locator(target);
+  async scrollTo(target: Target, opts: ScrollOptions = {}) {
+    const loc = await this.toLocator(target);
     await loc.waitFor({ state: "attached" });
-    const duration = this.mode.dry ? 0 : (opts.duration ?? this.config.motion.scrollDuration);
+    const duration = this.mode.fast ? 0 : (opts.duration ?? this.config.motion.scrollDuration);
     const table = easingTable(resolveEasing(opts.easing ?? "smooth"));
     const t0 = this.now();
     const dy = await loc.evaluate(scrollElementIntoView, { block: opts.block ?? "center", margin: opts.margin ?? 40, duration, table });
     this.log({ type: "scroll", t: t0, dx: 0, dy });
-    if (!this.mode.dry) await sleep(100);
+    if (!this.mode.fast) await sleep(100);
     await this.step("scrollTo", describe(target));
   }
 
@@ -433,7 +677,7 @@ export class Session {
     const duration = opts.duration ?? z.duration;
     this.manualZoomActive = true;
     this.log({ type: "zoom", t: this.now(), target: cam, duration, easing: opts.easing ?? z.easing, follow: opts.follow ?? z.followCursor, source: "manual" });
-    if (opts.wait !== false && !this.mode.dry) await sleep(duration);
+    if (opts.wait !== false && !this.mode.fast) await sleep(duration);
     await this.step("zoom", `${describe(target)} x${scale.toFixed(2)}`);
   }
 
@@ -442,7 +686,7 @@ export class Session {
     const duration = opts.duration ?? this.config.zoom.duration;
     this.manualZoomActive = false;
     this.log({ type: "zoomOut", t: this.now(), duration, easing: opts.easing ?? this.config.zoom.easing, source: "manual" });
-    if (opts.wait !== false && !this.mode.dry) await sleep(duration);
+    if (opts.wait !== false && !this.mode.fast) await sleep(duration);
     await this.step("zoomOut");
   }
 
@@ -454,6 +698,43 @@ export class Session {
   /** Add a named marker; shows up in dry-run sheets and the event log. */
   async mark(name: string) {
     await this.step("mark", name);
+  }
+
+  // ----------------------------------------------------------------------
+  // Discovery
+  // ----------------------------------------------------------------------
+
+  /**
+   * List every element matching a role+name target (a RegExp name matches a group).
+   * Use this to survey a page and choose an address, instead of guessing selectors.
+   */
+  async find(target: RoleTarget): Promise<Match[]> {
+    return findAllRoleTargets(this.page, target);
+  }
+
+  /** Convenience alias for `find({ role, name })`. */
+  async findAll(role: string, name: string | RegExp, opts: { within?: string | Locator } = {}): Promise<Match[]> {
+    return findAllRoleTargets(this.page, { role, name, ...opts });
+  }
+
+  /**
+   * Refresh the inventory for the current page and return it. Lets a scenario inspect
+   * what is on screen mid-run instead of relying on a stale index.
+   */
+  async inventory(opts: { scroll?: boolean } = {}): Promise<InventoryPage> {
+    const { collectInventory } = await import("../inventory.js");
+    return (await this.page.evaluate(collectInventory, {
+      max: this.config.explore?.max ?? 250,
+      scroll: opts.scroll ?? false,
+    })) as InventoryPage;
+  }
+
+  /** Handles from the index for the current page, as `handle -> address` pairs. */
+  handles(): { handle: string; role: string; name: string; nth: number }[] {
+    const index = this.loadIndex();
+    if (!index) return [];
+    const page = index.pages.find((p) => samePage(p.url, this.page.url()));
+    return (page?.elements ?? []).map((e) => ({ handle: e.handle, role: e.role, name: e.name, nth: e.nth }));
   }
 }
 
@@ -472,6 +753,8 @@ export function describe(t: Target | null): string {
   if (t === null) return "focused";
   if (typeof t === "string") return t;
   if (isLocator(t)) return t.toString();
+  if (isRoleTarget(t)) return `role=${t.role} name="${t.name}"${t.nth ? ` nth=${t.nth}` : ""}${t.near ? ` near="${t.near}"` : ""}`;
+  if (isTextTarget(t)) return `text=${t.text instanceof RegExp ? t.text : JSON.stringify(t.text)}${t.nth ? ` nth=${t.nth}` : ""}`;
   if ("width" in t) return `rect(${t.x},${t.y},${t.width}x${t.height})`;
   return `point(${t.x},${t.y})`;
 }

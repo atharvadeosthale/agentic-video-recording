@@ -38,10 +38,12 @@ export const defaultConfig: ScenarioConfig = {
     typingJitter: 0.35,
     scrollDuration: 600,
   },
-  idleTrim: { enabled: true, threshold: 1500, keep: 600 },
+  idleTrim: { enabled: true, threshold: 1500, keep: 600, protectCamera: true },
   browser: { headless: true, timeout: 15000, sameTabLinks: true },
   capture: { format: "jpeg", quality: 92 },
+  keys: { mode: "shortcuts", hold: 1200, gap: 900, platform: "mac", position: "bottom", offset: 0.1, fontSize: 34 },
   dryRun: { scale: 0.5, contactSheet: true, columns: 3 },
+  explore: { index: ".avr/inventory.json", max: 250, scroll: true },
 };
 
 export const cursorSizePresets = { small: 24, default: 36, large: 48, xl: 64 } as const;

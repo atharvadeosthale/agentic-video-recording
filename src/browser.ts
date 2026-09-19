@@ -29,6 +29,12 @@ export function ensureChromium(cfg: BrowserConfig, log: (s: string) => void = ()
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
+/** Keeps target=_blank links and window.open in the recorded tab. */
+export const SAME_TAB_SCRIPT = `document.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a[target="_blank"]') : null;
+    if (a) a.target = '_self';
+  }, true); window.open = (u) => { if (u) location.href = String(u); return window; };`;
+
 export interface LaunchedBrowser {
   browser?: Browser;
   context: BrowserContext;
@@ -56,10 +62,7 @@ export async function launchBrowser(cfg: BrowserConfig, viewport: ViewportConfig
     ignoreHTTPSErrors: true,
   };
 
-  const sameTab = `document.addEventListener('click', (e) => {
-    const a = e.target && e.target.closest ? e.target.closest('a[target="_blank"]') : null;
-    if (a) a.target = '_self';
-  }, true); window.open = (u) => { if (u) location.href = String(u); return window; };`;
+  const sameTab = SAME_TAB_SCRIPT;
 
   if (cfg.userDataDir) {
     const context = await chromium.launchPersistentContext(cfg.userDataDir, {
@@ -88,6 +91,18 @@ export async function launchBrowser(cfg: BrowserConfig, viewport: ViewportConfig
       await browser.close().catch(() => {});
     },
   };
+}
+
+/**
+ * Connect to a browser started by `avr session start`, instead of launching one. The
+ * returned handle never closes the browser: the daemon owns its lifetime.
+ */
+export async function connectToSession(port: number, cfg: BrowserConfig): Promise<LaunchedBrowser> {
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  const context = browser.contexts()[0];
+  if (!context) throw new Error(`Session on port ${port} has no browser context.`);
+  context.setDefaultTimeout(cfg.timeout);
+  return { browser, context, close: async () => { await browser.close().catch(() => {}); } };
 }
 
 export function chromiumInfo(cfg: BrowserConfig): { path: string; version?: string } {
