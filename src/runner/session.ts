@@ -282,30 +282,47 @@ export class Session {
     const t = this.now();
     const timeout = opts.timeout ?? this.config.browser.timeout;
     const deadline = Date.now() + timeout;
+    // Apps that poll never go network-idle, so this wait only gets a share of the budget.
+    // The element count below is what decides readiness.
     await this.page
-      .waitForLoadState("networkidle", { timeout: Math.min(timeout, 20000) })
+      .waitForLoadState("networkidle", { timeout: Math.min(timeout / 3, 5000) })
       .catch(() => {});
 
     let prev = -1;
     let stable = 0;
-    while (Date.now() < deadline) {
-      const count = await this.page
-        .evaluate(() => {
+    let lastError: unknown;
+    while (stable < 2) {
+      if (Date.now() >= deadline) {
+        const why =
+          prev < 0
+            ? `the page could not be inspected${lastError ? `: ${(lastError as Error).message ?? lastError}` : ""}`
+            : prev === 0
+              ? "no interactive element became visible"
+              : `the interactive element count never settled (last count ${prev})`;
+        throw new Error(`Page not ready after ${timeout}ms: ${why}`);
+      }
+      await sleep(300);
+      let count: number;
+      try {
+        count = await this.page.evaluate(() => {
           let n = 0;
           for (const el of document.querySelectorAll("a[href], button, input, select, textarea, [role], summary, h1, h2, h3")) {
             const r = el.getBoundingClientRect();
             if (r.width >= 1 && r.height >= 1) n++;
           }
           return n;
-        })
-        .catch(() => prev);
+        });
+      } catch (err) {
+        // A navigation mid-check destroys the execution context. Start counting again.
+        lastError = err;
+        stable = 0;
+        continue;
+      }
       if (count === prev && count > 0) stable++;
       else {
         stable = 0;
         prev = count;
       }
-      if (stable >= 2) break;
-      await sleep(300);
     }
     if (opts.settle) await sleep(opts.settle);
     const reason = `ready (${prev} interactive elements)`;

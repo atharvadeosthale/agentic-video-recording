@@ -35,6 +35,13 @@ export const SAME_TAB_SCRIPT = `document.addEventListener('click', (e) => {
     if (a) a.target = '_self';
   }, true); window.open = (u) => { if (u) location.href = String(u); return window; };`;
 
+/**
+ * Scenario files are compiled by tsx, whose esbuild settings wrap every named function in
+ * a `__name()` call. A function passed to `page.evaluate` is serialized without that
+ * helper, so the page needs its own copy or the call throws `__name is not defined`.
+ */
+export const NAME_HELPER_SCRIPT = `globalThis.__name ??= (fn) => fn;`;
+
 export interface LaunchedBrowser {
   browser?: Browser;
   context: BrowserContext;
@@ -72,6 +79,7 @@ export async function launchBrowser(cfg: BrowserConfig, viewport: ViewportConfig
       ...contextOptions,
     });
     context.setDefaultTimeout(cfg.timeout);
+    await context.addInitScript(NAME_HELPER_SCRIPT);
     if (cfg.sameTabLinks) await context.addInitScript(sameTab);
     return { context, close: () => context.close() };
   }
@@ -82,6 +90,7 @@ export async function launchBrowser(cfg: BrowserConfig, viewport: ViewportConfig
     storageState: cfg.storageState,
   });
   context.setDefaultTimeout(cfg.timeout);
+  await context.addInitScript(NAME_HELPER_SCRIPT);
   if (cfg.sameTabLinks) await context.addInitScript(sameTab);
   return {
     browser,

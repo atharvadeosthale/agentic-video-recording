@@ -375,7 +375,7 @@ This is the fastest loop when you are discovering what to record: explore, ask `
 
 **Explore for the whole-page view.** `avr explore` and `avr find` attach to the same session, so they cost no relaunch. Use them when you want every element on a page by URL; use `avr do` and `avr look` for states that only exist after a click.
 
-**Reach for `ready()` instead of `wait(3000)`.** Single-page apps render after `load`, so a fixed wait is either too short or wasted. `ready()` waits for the network to go quiet and the element count to settle, and reports how many interactive elements it found.
+**Reach for `ready()` instead of `wait(3000)`.** Single-page apps render after `load`, so a fixed wait is either too short or wasted. `ready()` waits briefly for the network to go quiet, then waits for the interactive element count to settle, and reports how many elements it found. An app that polls forever still becomes ready, because the element count decides. If nothing visible settles within the timeout, `ready()` throws instead of reporting success.
 
 ```ts
 await s.goto(url);

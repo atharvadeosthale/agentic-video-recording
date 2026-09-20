@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { chromium, type Page } from "playwright";
-import { resolveExecutablePath, ensureChromium, SAME_TAB_SCRIPT } from "../browser.js";
+import { resolveExecutablePath, ensureChromium, SAME_TAB_SCRIPT, NAME_HELPER_SCRIPT } from "../browser.js";
 import { resolveConfig } from "../config.js";
 import type { ScenarioConfig, UserScenarioConfig } from "../types.js";
 import { writeSession } from "./session-store.js";
@@ -71,6 +71,7 @@ const context = await chromium.launchPersistentContext(userDataDir, {
 });
 
 context.setDefaultTimeout(cfg.browser.timeout);
+await context.addInitScript(NAME_HELPER_SCRIPT);
 if (cfg.browser.sameTabLinks) await context.addInitScript(SAME_TAB_SCRIPT);
 const page = context.pages()[0] ?? (await context.newPage());
 
@@ -105,8 +106,6 @@ function drainProblems(): string[] {
   problems = [];
   const lines = [...counts].slice(0, 6).map(([p, n]) => `! ${p}${n > 1 ? ` (x${n})` : ""}`);
   if (counts.size > 6) lines.push(`! … ${counts.size - 6} more page problems`);
-  if (lines.some((l) => /__name is not defined/.test(l)))
-    lines.push("  hint: `__name is not defined` comes from passing a function to addInitScript/evaluate from a .ts file. Pass the script as a string instead.");
   return lines;
 }
 
