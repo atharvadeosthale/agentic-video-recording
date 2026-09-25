@@ -797,7 +797,7 @@ const animateScroll = ({ el, dx, dy, duration, table }: { el: Element | null; dx
     }
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
+      const t = Math.max(0, Math.min(1, (now - start) / duration));
       const e = ease(t);
       target.scrollTo({ left: x0 + dx * e, top: y0 + dy * e, behavior: "instant" });
       if (t < 1) requestAnimationFrame(tick);
@@ -837,7 +837,7 @@ const scrollElementIntoView = (el: Element, { block, margin, duration, table }: 
     }
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
+      const t = Math.max(0, Math.min(1, (now - start) / duration));
       scroller.scrollTo({ top: y0 + dy * ease(t), behavior: "instant" });
       if (t < 1) requestAnimationFrame(tick);
       else resolve(dy);
