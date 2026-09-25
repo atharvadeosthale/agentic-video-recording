@@ -222,6 +222,14 @@ Tools: `takeone_start` (an optional login through a scenario's `explore.setup`, 
 
 To run a second session on the same machine, set a different port, for example `TAKEONE_SESSION_PORT=9322`. It gets its own browser and profile.
 
+## Agent skill
+
+A skill that teaches coding agents the whole workflow ships in `skills/takeone`. Install it with the [skills](https://skills.sh) CLI:
+
+```bash
+npx skills add atharvadeosthale/agentic-video-recording
+```
+
 ## Exploring a page
 
 Add an `explore` plan to the scenario. It is optional: scenarios without one still record normally.
