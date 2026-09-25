@@ -218,7 +218,7 @@ async function openCompositorPage(browser: Browser, dir: string, setup: Record<s
     if (url.pathname.startsWith("/bg/")) return route.fulfill({ body: readFileSync(decodeURIComponent(url.pathname.slice(4))) });
     return route.abort();
   });
-  await page.goto("http://avr.local/");
+  await page.goto("http://takeone.local/");
   await page.evaluate((c) => (window as any).__setup(c), setup);
   // Rasterise the CSS background (gradient or image) once and hand it to the canvas as a layer.
   await page.evaluate(() => (window as any).__showCanvas(false));

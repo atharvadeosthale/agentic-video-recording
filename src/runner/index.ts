@@ -86,7 +86,7 @@ export async function recordScenario(scenario: Scenario, opts: RecordOptions): P
   // A failed run keeps what it captured: minutes of footage should never vanish with the error.
   if (error) {
     const e = error instanceof Error ? error : new Error(String(error));
-    if (kept.length) e.message += `\n\nThe ${kept.length} frames captured before the failure were kept. \`avr render ${opts.outDir}\` renders them as a partial video.`;
+    if (kept.length) e.message += `\n\nThe ${kept.length} frames captured before the failure were kept. \`takeone render ${opts.outDir}\` renders them as a partial video.`;
     throw e;
   }
   return { outDir, manifestPath, manifest };

@@ -1,6 +1,6 @@
 /**
- * A persistent browser session: `avr session start` launches a headless Chromium once,
- * logs in once, and stays alive. Later `avr` commands attach to it over CDP, so exploring
+ * A persistent browser session: `takeone session start` launches a headless Chromium once,
+ * logs in once, and stays alive. Later `takeone` commands attach to it over CDP, so exploring
  * and inspecting a logged-in app costs nothing per call.
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from "node:fs";
@@ -20,26 +20,26 @@ export interface SessionInfo {
   /** URL the session is currently on. */
   url?: string;
   note?: string;
-  /** Port of the daemon's command server (`avr do`, `look`, journal). */
+  /** Port of the daemon's command server (`takeone do`, `look`, journal). */
   controlPort?: number;
   /** Scenario file the session took its login setup from. */
   scenario?: string;
   /** False while login setup is still running. */
   ready?: boolean;
   setupError?: string;
-  /** Build of the daemon that runs this session, to notice a session left over from an older avr. */
+  /** Build of the daemon that runs this session, to notice a session left over from an older takeone. */
   build?: string;
 }
 
-export const DEFAULT_SESSION_FILE = ".avr/session.json";
+export const DEFAULT_SESSION_FILE = ".takeone/session.json";
 export const DEFAULT_SESSION_PORT = 9222;
 
-/** The session's debugging port. AVR_SESSION_PORT gives a second agent on the same machine its own browser. */
-export const sessionPort = () => Number(process.env.AVR_SESSION_PORT || DEFAULT_SESSION_PORT);
-const profileFor = (port: number) => (port === DEFAULT_SESSION_PORT ? "/tmp/avr-session" : `/tmp/avr-session-${port}`);
+/** The session's debugging port. TAKEONE_SESSION_PORT gives a second agent on the same machine its own browser. */
+export const sessionPort = () => Number(process.env.TAKEONE_SESSION_PORT || DEFAULT_SESSION_PORT);
+const profileFor = (port: number) => (port === DEFAULT_SESSION_PORT ? "/tmp/takeone-session" : `/tmp/takeone-session-${port}`);
 
 export function sessionFile(path?: string): string {
-  return resolve(path ?? process.env.AVR_SESSION_FILE ?? DEFAULT_SESSION_FILE);
+  return resolve(path ?? process.env.TAKEONE_SESSION_FILE ?? DEFAULT_SESSION_FILE);
 }
 
 export function readSession(path?: string): SessionInfo | null {
@@ -101,7 +101,7 @@ export function startSessionDaemon(opts: {
   const child = spawn(process.execPath, args, {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, AVR_SESSION_DAEMON: "1" },
+    env: { ...process.env, TAKEONE_SESSION_DAEMON: "1" },
   });
   child.unref();
   return { pid: child.pid ?? -1 };
@@ -142,7 +142,7 @@ export interface CommandReply {
 
 /** Send a command to the daemon's control port. */
 export async function sendCommand(info: SessionInfo, path: string, body: unknown): Promise<CommandReply> {
-  if (!info.controlPort) throw new Error("This session was started by an older avr. Run `avr session stop` and start it again.");
+  if (!info.controlPort) throw new Error("This session was started by an older takeone. Run `takeone session stop` and start it again.");
   const res = await fetch(`http://127.0.0.1:${info.controlPort}${path}`, { method: "POST", body: JSON.stringify(body) });
   return (await res.json()) as CommandReply;
 }
@@ -157,7 +157,7 @@ export async function waitForSession(pid: number, timeoutMs = 90000, path?: stri
     try {
       process.kill(pid, 0);
     } catch {
-      throw new Error("The session daemon exited during startup. Try `avr session start --headed`, or check that the port is free.");
+      throw new Error("The session daemon exited during startup. Try `takeone session start --headed`, or check that the port is free.");
     }
   }
   throw new Error(`Session did not become ready within ${timeoutMs / 1000}s (login setup still running?).`);
@@ -165,13 +165,13 @@ export async function waitForSession(pid: number, timeoutMs = 90000, path?: stri
 
 /**
  * The running session, starting one when there is none. Commands that need a live
- * browser call this, so an agent never has to remember `avr session start`.
+ * browser call this, so an agent never has to remember `takeone session start`.
  */
 export async function ensureSession(opts: { scenario?: string; url?: string; config?: UserScenarioConfig; log?: (msg: string) => void } = {}): Promise<SessionInfo> {
   const existing = readSession();
   if (existing && existing.controlPort && (await sessionAlive(existing))) {
     if (existing.build !== daemonBuild())
-      opts.log?.("note: this session was started by an older avr build, so it runs the old code. `avr session stop` picks up the update (the journal starts over).");
+      opts.log?.("note: this session was started by an older takeone build, so it runs the old code. `takeone session stop` picks up the update (the journal starts over).");
     return existing;
   }
   if (existing) {

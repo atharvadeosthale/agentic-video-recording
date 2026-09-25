@@ -22,7 +22,7 @@ export class ViewWriter {
   private seq = 0;
 
   constructor(port: number) {
-    this.dir = join(tmpdir(), `avr-view-${port}`);
+    this.dir = join(tmpdir(), `takeone-view-${port}`);
     rmSync(this.dir, { recursive: true, force: true });
     mkdirSync(this.dir, { recursive: true });
   }

@@ -1,13 +1,30 @@
 {
-  "name": "agentic-video-recording",
+  "name": "takeone",
   "version": "0.1.0",
   "description": "Scripted, agent-friendly screen recordings of web apps with Screen Studio style cursor, zoom and framing. Runs headless.",
   "type": "module",
   "license": "MIT",
+  "author": "Atharva Deosthale",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atharvadeosthale/agentic-video-recording.git"
+  },
+  "homepage": "https://github.com/atharvadeosthale/agentic-video-recording#readme",
+  "bugs": {
+    "url": "https://github.com/atharvadeosthale/agentic-video-recording/issues"
+  },
+  "keywords": [
+    "screen-recording",
+    "video",
+    "playwright",
+    "demo",
+    "agent",
+    "mcp",
+    "screencast",
+    "screen-studio"
+  ],
   "bin": {
-    "agentic-video-recording": "./dist/cli.js",
-    "avr": "./dist/cli.js",
-    "avr-mcp": "./dist/mcp-bin.js"
+    "takeone": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,7 +36,9 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

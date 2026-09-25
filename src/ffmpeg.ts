@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 export function resolveFfmpeg(): string {
-  const fromEnv = process.env.FFMPEG_PATH ?? process.env.AVR_FFMPEG_PATH;
+  const fromEnv = process.env.FFMPEG_PATH ?? process.env.TAKEONE_FFMPEG_PATH;
   if (fromEnv) {
     if (!existsSync(fromEnv)) throw new Error(`ffmpeg not found at ${fromEnv}`);
     return fromEnv;

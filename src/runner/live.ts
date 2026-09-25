@@ -1,5 +1,5 @@
 /**
- * Live steps: the verbs behind `avr do`. A step is plain data, so the same record can be
+ * Live steps: the verbs behind `takeone do`. A step is plain data, so the same record can be
  * executed in the session browser, kept in the journal, replayed to verify a path, and
  * written out as scenario code.
  */
@@ -348,8 +348,8 @@ const firstState = (path: JournalEntry[]) => path.find((p) => !isCameraStep(p.st
 export type Phase = "explore" | "setup" | "record";
 
 /**
- * Which part of the scenario each journal entry belongs to. `avr mark setup` opens the
- * unrecorded setup (put the app in the state the video starts from), `avr mark start`
+ * Which part of the scenario each journal entry belongs to. `takeone mark setup` opens the
+ * unrecorded setup (put the app in the state the video starts from), `takeone mark start`
  * begins the recording, and everything before either was looking around. With no marks at
  * all, every step is part of the recording.
  */
@@ -395,10 +395,10 @@ export function formatJournal(journal: JournalEntry[]): string[] {
   });
 }
 
-export const STEPS_BEGIN = "// avr:steps-begin";
-export const STEPS_END = "// avr:steps-end";
-export const SETUP_BEGIN = "// avr:setup-begin";
-export const SETUP_END = "// avr:setup-end";
+export const STEPS_BEGIN = "// takeone:steps-begin";
+export const STEPS_END = "// takeone:steps-end";
+export const SETUP_BEGIN = "// takeone:setup-begin";
+export const SETUP_END = "// takeone:setup-end";
 
 export type BlockKind = "steps" | "setup";
 const markers = (kind: BlockKind) => (kind === "setup" ? [SETUP_BEGIN, SETUP_END] : [STEPS_BEGIN, STEPS_END]);
@@ -426,7 +426,7 @@ export function stepsBlock(startUrl: string, entries: JournalEntry[], kind: Bloc
   }
   const [begin, end] = markers(kind);
   const inner = body.map((l) => indent + l).join("\n");
-  return `${indent}${begin} ${blockHash(inner)} (replaced by \`avr session export\`; edits outside this block are kept)\n${inner}\n${indent}${end}`;
+  return `${indent}${begin} ${blockHash(inner)} (replaced by \`takeone session export\`; edits outside this block are kept)\n${inner}\n${indent}${end}`;
 }
 
 /**
@@ -435,8 +435,11 @@ export function stepsBlock(startUrl: string, entries: JournalEntry[], kind: Bloc
  * file has no such block, or when the block was edited by hand since it was written.
  */
 export function replaceStepsBlock(source: string, block: string, kind: BlockKind = "steps"): { source?: string; refused?: string } {
-  const [begin, end] = markers(kind);
   const lines = source.split("\n");
+  // Files exported before the rename carry "// avr:" markers. Find either; write the new ones.
+  let [begin, end] = markers(kind);
+  const legacy = [begin, end].map((m) => m.replace("// takeone:", "// avr:"));
+  if (!lines.some((l) => l.includes(begin)) && lines.some((l) => l.includes(legacy[0]))) [begin, end] = legacy;
   const b = lines.findIndex((l) => l.includes(begin));
   const e = lines.findIndex((l, i) => i > b && l.includes(end));
   if (b < 0 || e < 0)
@@ -469,7 +472,7 @@ ${opts.block}
     await s.wait(1200);
     await s.stopRecording();
   })`;
-  return `// Written by \`avr session export\`. Edit the config freely: a later export only replaces the steps block.
+  return `// Written by \`takeone session export\`. Edit the config freely: a later export only replaces the steps block.
 import { defineScenario${opts.importFrom ? ", withExplore" : ""} } from ${JSON.stringify(opts.pkg)};
 ${opts.importFrom ? `import base from ${JSON.stringify(opts.importFrom)};\n` : ""}
 export default ${opts.importFrom ? `withExplore(\n  ${scenario},\n  base.explore ?? { pages: [] },\n)` : scenario};

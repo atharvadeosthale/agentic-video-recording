@@ -1,9 +1,9 @@
 /**
  * The session daemon. Launches one Chromium with a fixed debugging port, optionally logs
- * in, then serves commands. `explore`/`find` attach over CDP; `avr do`, `look` and the
+ * in, then serves commands. `explore`/`find` attach over CDP; `takeone do`, `look` and the
  * journal talk to the control port, because only a process that stays alive can diff the
  * page against its previous state and collect page errors between commands. Not meant to
- * be run directly; `avr session start` (or the first `avr do`) spawns it.
+ * be run directly; `takeone session start` (or the first `takeone do`) spawns it.
  */
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from "node:fs";
@@ -44,7 +44,7 @@ function arg(name: string): string | undefined {
 
 const port = Number(arg("port") ?? 9222);
 const controlPort = port + 1;
-const userDataDir = arg("user-data-dir") ?? "/tmp/avr-session";
+const userDataDir = arg("user-data-dir") ?? "/tmp/takeone-session";
 const sessionPath = arg("session")!;
 const setupFile = arg("setup");
 const startUrl = arg("url");
@@ -138,7 +138,7 @@ const publish = (extra: Record<string, unknown> = {}) =>
 
 const started = Date.now();
 const views = new ViewWriter(port);
-/** The last view the agent was shown. Its numbers are what `avr do click 12` means. */
+/** The last view the agent was shown. Its numbers are what `takeone do click 12` means. */
 let lastView: Observation | null = null;
 
 /** Write the view for an observation and make its numbers the current ones. */
@@ -158,14 +158,14 @@ function viewLine(file: string): string {
  * same element is found again by what it is and where it was.
  */
 function byNumber(obs: Observation, n: number, notes: string[]): InventoryElement {
-  if (!lastView) throw new Error(`There is no view yet for number ${n} to refer to. Run \`avr look\` first.`);
+  if (!lastView) throw new Error(`There is no view yet for number ${n} to refer to. Run \`takeone look\` first.`);
   const was = lastView.elements.find((e) => e.label === n);
-  if (!was) throw new Error(`The last view has no number ${n} (it runs 1-${lastView.elements.length}). Run \`avr look\` for the current numbers.`);
+  if (!was) throw new Error(`The last view has no number ${n} (it runs 1-${lastView.elements.length}). Run \`takeone look\` for the current numbers.`);
   if (obs.fingerprint === lastView.fingerprint) return obs.elements.find((e) => e.label === n) ?? was;
   const same = obs.elements
     .filter((e) => e.role === was.role && e.name === was.name)
     .sort((a, b) => Math.hypot(a.x - was.x, a.y - was.y) - Math.hypot(b.x - was.x, b.y - was.y));
-  if (!same.length) throw new Error(`${n} was ${fmtLabeled(was, { number: false })} in the last view, and it is not on the page now. Run \`avr look\` for the current numbers.`);
+  if (!same.length) throw new Error(`${n} was ${fmtLabeled(was, { number: false })} in the last view, and it is not on the page now. Run \`takeone look\` for the current numbers.`);
   notes.push(`the page changed since the last view; found ${n} again by its name`);
   return same[0];
 }
@@ -225,7 +225,7 @@ async function resolveQuery(obs: Observation, query: string, verb: Step["verb"],
         `Nothing on the page matches ${JSON.stringify(query)}${req.role ?? explicit.role ? ` with role ${req.role ?? explicit.role}` : ""}.`,
         ...(near.length ? ["  Closest:", ...near.map((e) => `    ${e.role} ${JSON.stringify(e.name.slice(0, 56))}`)] : []),
         formatGist(obs.url, obs),
-        "  `avr look` lists everything on the page.",
+        "  `takeone look` lists everything on the page.",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -248,7 +248,7 @@ async function resolveQuery(obs: Observation, query: string, verb: Step["verb"],
 async function buildStep(req: DoRequest, obs: Observation, notes: string[]): Promise<Step> {
   const [a, b] = req.args;
   const need = (v: string | undefined, what: string) => {
-    if (v === undefined || v === "") throw new Error(`avr do ${req.verb} needs ${what}.`);
+    if (v === undefined || v === "") throw new Error(`takeone do ${req.verb} needs ${what}.`);
     return v;
   };
   switch (req.verb) {
@@ -293,7 +293,7 @@ async function buildStep(req: DoRequest, obs: Observation, notes: string[]): Pro
 }
 
 async function doCommand(req: DoRequest): Promise<Reply> {
-  if (crashed) return { ok: false, lines: ["The page crashed earlier. Run `avr session stop` and start again."] };
+  if (crashed) return { ok: false, lines: ["The page crashed earlier. Run `takeone session stop` and start again."] };
   const notes: string[] = [];
   const before = await observe(page);
   const step = await buildStep(req, before, notes);
@@ -352,7 +352,7 @@ async function doCommand(req: DoRequest): Promise<Reply> {
       if (diff.length) lines.push(...diff);
       else if (!failure && !waited) lines.push(step.verb === "click" || step.verb === "press" ? "no visible change: the page is in the same state as before (wrong element, or nothing to do?)" : "no visible change");
     }
-    if (!settled) lines.push("the page was still changing after 5s; `avr look` again, or `avr do wait-for <text>`");
+    if (!settled) lines.push("the page was still changing after 5s; `takeone look` again, or `takeone do wait-for <text>`");
     view = await showView(after, `step${entry.id}`);
     if (view) lines.push(viewLine(view));
   }
@@ -382,7 +382,7 @@ async function journalCommand(req: { action?: "drop" | "keep" | "setup" | "clear
   }
   saveJournal();
   const lines = formatJournal(journal);
-  return { ok: true, lines: lines.length ? lines : ["The journal is empty. Steps taken with `avr do` land here."] };
+  return { ok: true, lines: lines.length ? lines : ["The journal is empty. Steps taken with `takeone do` land here."] };
 }
 
 /** Replay the kept steps in a fresh tab of the same logged-in browser. */
@@ -404,7 +404,7 @@ async function verify(startAt: string, entries: JournalEntry[]): Promise<string[
           `✗ verify failed at #${e.id} ${e.code}`,
           ...(err as Error).message.split("\n").map((l) => `  ${l}`),
           ...(g ? [formatGist(g.url, g)] : []),
-          "  A kept step probably depends on a dropped one (`avr journal keep <id>`), or the rehearsal changed server state (a name now taken, an item already created).",
+          "  A kept step probably depends on a dropped one (`takeone journal keep <id>`), or the rehearsal changed server state (a name now taken, an item already created).",
         ];
       }
       if (!isCameraStep(e.step)) {
@@ -421,7 +421,7 @@ async function verify(startAt: string, entries: JournalEntry[]): Promise<string[
 async function exportCommand(req: { file: string; name?: string; from?: string; verify?: boolean; force?: boolean; pkg: string }): Promise<Reply> {
   saveJournal();
   const kept = keptEntries(journal);
-  if (!kept.record.some((e) => !isCameraStep(e.step))) return { ok: false, lines: ["Nothing to export: no recorded steps. `avr journal` shows where each step landed."] };
+  if (!kept.record.some((e) => !isCameraStep(e.step))) return { ok: false, lines: ["Nothing to export: no recorded steps. `takeone journal` shows where each step landed."] };
   const all = [...kept.setup, ...kept.record];
   const first = all.find((e) => !isCameraStep(e.step))!;
   // A leading goto is the start URL itself.
@@ -479,7 +479,7 @@ async function exportCommand(req: { file: string; name?: string; from?: string; 
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, out);
   lines.push(`${updated ? "Updated the steps block in" : ok ? "Wrote" : "Wrote (unverified path)"} ${relative(process.cwd(), file)}: ${setupSteps.length ? `${setupSteps.length} setup + ` : ""}${body.length} recorded steps from ${pathOf(startAt)}`);
-  lines.push(`Next: avr record ${relative(process.cwd(), file)}`);
+  lines.push(`Next: takeone record ${relative(process.cwd(), file)}`);
   return { ok, lines };
 }
 

@@ -1,5 +1,5 @@
 /**
- * `avr explore`: visit pages once, inventory every interactive element, and write an
+ * `takeone explore`: visit pages once, inventory every interactive element, and write an
  * index that scenarios can point at by handle. One browser launch instead of one per probe.
  */
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -41,7 +41,7 @@ export interface ExploreOptions {
   log?: (msg: string) => void;
   /** Also write an HTML page listing handles next to screenshots. Default true. */
   html?: boolean;
-  /** Ignore a live `avr session` and launch a fresh browser. */
+  /** Ignore a live `takeone session` and launch a fresh browser. */
   noSession?: boolean;
 }
 
@@ -61,7 +61,7 @@ export async function exploreScenario(opts: ExploreOptions): Promise<ExploreResu
   const shotsDir = join(outDir, "pages");
   mkdirSync(shotsDir, { recursive: true });
 
-  // Attach to a live `avr session` when there is one: the login already happened, so the
+  // Attach to a live `takeone session` when there is one: the login already happened, so the
   // walk costs nothing per page.
   const session = readSession();
   const useSession = !opts.noSession && session && (await sessionAlive(session));
@@ -252,7 +252,7 @@ ${amb}
 <table><thead><tr><th>handle</th><th>role</th><th>name</th><th>at</th><th>size</th><th>target</th></tr></thead><tbody>${rows}</tbody></table></section>`;
     })
     .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>avr inventory</title><style>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>takeone inventory</title><style>
 body{font:14px ui-sans-serif,system-ui,sans-serif;margin:0;padding:24px;background:#0f1115;color:#e6e6e6}
 h1{margin-top:0}h2{margin:28px 0 4px}.u{color:#8b95a5;margin:0 0 12px;font-size:12px}
 img{max-width:100%;border-radius:8px;display:block;margin:0 0 12px}

@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import type { BrowserConfig, ViewportConfig } from "./types.js";
 
 export function resolveExecutablePath(cfg: BrowserConfig): string | undefined {
-  const fromEnv = process.env.AVR_CHROMIUM_PATH;
+  const fromEnv = process.env.TAKEONE_CHROMIUM_PATH;
   const p = cfg.executablePath ?? fromEnv;
   if (p) {
     if (!existsSync(p)) throw new Error(`Chromium executable not found at ${p}`);
@@ -103,7 +103,7 @@ export async function launchBrowser(cfg: BrowserConfig, viewport: ViewportConfig
 }
 
 /**
- * Connect to a browser started by `avr session start`, instead of launching one. The
+ * Connect to a browser started by `takeone session start`, instead of launching one. The
  * returned handle never closes the browser: the daemon owns its lifetime.
  */
 export async function connectToSession(port: number, cfg: BrowserConfig): Promise<LaunchedBrowser> {

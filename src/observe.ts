@@ -211,12 +211,12 @@ export function diffObservations(a: Observation, b: Observation, limit = 14): st
 
   const navigated = a.url.split(/[?#]/)[0] !== b.url.split(/[?#]/)[0];
   if (navigated && added.length > limit) {
-    // A whole new page: the diff is the page. Summarize and point at `avr look`.
-    out.push(`new page: ${b.elements.length} elements (run \`avr look\` to list them)`);
+    // A whole new page: the diff is the page. Summarize and point at `takeone look`.
+    out.push(`new page: ${b.elements.length} elements (run \`takeone look\` to list them)`);
   } else {
     const add = uniq(added), rem = uniq(removed);
     for (const e of add.slice(0, limit)) out.push(`+ ${fmtLabeled(e)}`);
-    if (add.length > limit) out.push(`+ … ${add.length - limit} more (avr look)`);
+    if (add.length > limit) out.push(`+ … ${add.length - limit} more (takeone look)`);
     if (rem.length <= 6) for (const e of rem) out.push(`- ${fmtEl(e)}`);
     else out.push(`- ${rem.length} elements removed`);
   }
@@ -243,7 +243,7 @@ export function diffObservations(a: Observation, b: Observation, limit = 14): st
 /**
  * The page as the agent reads it: every element numbered, grouped by the region it sits in,
  * with what the markup says each one does. The same numbers are drawn on the view's
- * screenshot, and `avr do click 12` acts on number 12.
+ * screenshot, and `takeone do click 12` acts on number 12.
  */
 export function formatObservation(o: Observation, opts: { role?: string; filter?: string; max?: number; all?: boolean } = {}): string[] {
   const out: string[] = [`${pathOf(o.url)}  "${short(o.title, 60)}"`];

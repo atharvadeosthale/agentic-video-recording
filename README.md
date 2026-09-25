@@ -1,4 +1,4 @@
-# agentic-video-recording
+# takeone
 
 Scripted, agent-friendly screen recordings of web apps with a Screen Studio style finish: smooth synthetic cursor, click ripples, eased zoom and pan, padded background frame. Runs fully headless on Linux or macOS. No display needed.
 
@@ -7,28 +7,28 @@ The core idea: **the agent never drives the browser live.** It writes a scenario
 ## Install
 
 ```bash
-npm install agentic-video-recording
-npx avr doctor   # checks Chromium and ffmpeg
+npm install takeone
+npx takeone doctor   # checks Chromium and ffmpeg
 ```
 
 Chromium is downloaded automatically on first use via Playwright. ffmpeg ships with the package. To use your own binaries:
 
-- `--chromium /path/to/chrome` or `browser.executablePath` in config, or `AVR_CHROMIUM_PATH`
+- `--chromium /path/to/chrome` or `browser.executablePath` in config, or `TAKEONE_CHROMIUM_PATH`
 - `FFMPEG_PATH` env var
 
 ## Quick start
 
 ```bash
-npx avr do goto http://localhost:3000   # rehearse live: prints the numbered view of the page
-npx avr do click 7                      # act by number; every step prints what changed
-npx avr session export scenario.ts      # the rehearsal becomes the scenario
-npx avr record scenario.ts              # capture + render -> recordings/<name>-<timestamp>/output.mp4
+npx takeone do goto http://localhost:3000   # rehearse live: prints the numbered view of the page
+npx takeone do click 7                      # act by number; every step prints what changed
+npx takeone session export scenario.ts      # the rehearsal becomes the scenario
+npx takeone record scenario.ts              # capture + render -> recordings/<name>-<timestamp>/output.mp4
 ```
 
 A scenario:
 
 ```ts
-import { defineScenario } from "agentic-video-recording";
+import { defineScenario } from "takeone";
 
 export default defineScenario(
   {
@@ -60,29 +60,29 @@ export default defineScenario(
 
 ## Workflow for agents
 
-Run `avr guide` for this on one screen.
+Run `takeone guide` for this on one screen.
 
 Rehearse in a live browser with plain words, and let the rehearsal write the scenario. There is no scenario file to author, no selector to guess, and no probe script to write.
 
 ```bash
-avr do goto http://localhost:3000/projects       # the first command starts the browser
-avr do click "new project"
-avr do type "name" "acme-prod"
-avr do wait-for "Database ready" --timeout 120000
-avr do zoom "heading:Query results"
-avr do zoom-out
-avr session export demo.ts             # replays the kept steps, then writes the file
-avr record demo.ts
+takeone do goto http://localhost:3000/projects       # the first command starts the browser
+takeone do click "new project"
+takeone do type "name" "acme-prod"
+takeone do wait-for "Database ready" --timeout 120000
+takeone do zoom "heading:Query results"
+takeone do zoom-out
+takeone session export demo.ts             # replays the kept steps, then writes the file
+takeone record demo.ts
 ```
 
 For a logged-in app, pass `--scenario <file>` on the first command. The file only needs an `explore.setup` that logs in. The session logs in once and every later command reuses it.
 
 ### Seeing the page
 
-`avr look`, and every `avr do` that lands on a new page or opens a dialog, prints the view. Every element on screen gets a number and is grouped by the region it sits in. Each line also shows what the page's markup says the element does:
+`takeone look`, and every `takeone do` that lands on a new page or opens a dialog, prints the view. Every element on screen gets a number and is grouped by the region it sits in. Each line also shows what the page's markup says the element does:
 
 ```
-$ avr do goto http://localhost:3000/projects
+$ takeone do goto http://localhost:3000/projects
 ✓ #1 await s.goto("http://localhost:3000/projects");
 /projects  "Projects - Acme"
 header
@@ -99,10 +99,10 @@ main
   13 button [icon ellipsis] (opens menu)
   14 switch "Email alerts" [off]
 off screen: 22 more elements. Headings: 30 "Sessions", 41 "Security"
-view: /tmp/avr-view-9222/001-step1.jpg
+view: /tmp/takeone-view-9222/001-step1.jpg
 ```
 
-The view file is a screenshot with the same numbers drawn on it. Open it when the text is not enough, for example for icons, layout or chart contents. Act by number: `avr do click 12`, `avr do type 5 "demo"`, `avr do zoom 14`. The export never writes a number. Each one becomes a role and name address, so the scenario replays after the page changes.
+The view file is a screenshot with the same numbers drawn on it. Open it when the text is not enough, for example for icons, layout or chart contents. Act by number: `takeone do click 12`, `takeone do type 5 "demo"`, `takeone do zoom 14`. The export never writes a number. Each one becomes a role and name address, so the scenario replays after the page changes.
 
 Everything in a line is read from the markup. Nothing is clicked or hovered to learn it:
 
@@ -117,13 +117,13 @@ Off-screen content is summarised as its headings. `scroll-to <n>` brings an elem
 ### Every step reports what changed
 
 ```
-$ avr do click 12
+$ takeone do click 12
 ✓ #6 await s.click({ role: "button", name: "Create user" });
   matched 12 button "Create user"
 + 31 textbox "Name"
 + 32 textbox "Email"
 ~ 14 switch "Email alerts" now [on]
-view: /tmp/avr-view-9222/006-step6.jpg
+view: /tmp/takeone-view-9222/006-step6.jpg
 ```
 
 The first line is the scenario line that was journaled. The rest is what changed since the previous page state:
@@ -143,27 +143,27 @@ A target is a number from the latest view, or plain words (`"new project"`). Wit
 You do not declare which clicks are for the video. Every step is journaled with a fingerprint of the page state. Steps that return to an earlier state, such as opening a menu and closing it, are marked as a detour and left out of the export.
 
 ```bash
-avr mark setup          # unrecorded setup begins: put the app in the state the video starts from
-avr mark start          # the recording begins
-avr journal             # where each step landed: explore, setup, record, detour, drop
-avr journal drop 5-8    # override
-avr journal keep 6
-avr journal setup 3     # move a step you already took into the setup
+takeone mark setup          # unrecorded setup begins: put the app in the state the video starts from
+takeone mark start          # the recording begins
+takeone journal             # where each step landed: explore, setup, record, detour, drop
+takeone journal drop 5-8    # override
+takeone journal keep 6
+takeone journal setup 3     # move a step you already took into the setup
 ```
 
-Both marks are optional. With neither, every step is recorded. With only `avr mark start`, everything before it was looking around. Setup steps are exported before `startRecording()`, run back to back with no pacing, and are replayed along with the recorded steps when the export verifies the path. A detour is only looked for inside one section, so setup can open something that the recording then closes.
+Both marks are optional. With neither, every step is recorded. With only `takeone mark start`, everything before it was looking around. Setup steps are exported before `startRecording()`, run back to back with no pacing, and are replayed along with the recorded steps when the export verifies the path. A detour is only looked for inside one section, so setup can open something that the recording then closes.
 
-`avr session export` replays the kept steps in a fresh tab of the same browser before it writes the file. If a kept step depended on a dropped one, the replay fails at that step and shows what the page said.
+`takeone session export` replays the kept steps in a fresh tab of the same browser before it writes the file. If a kept step depended on a dropped one, the replay fails at that step and shows what the page said.
 
 ### Exporting into a file that already has contents
 
-An exported file keeps its recorded steps between two marker comments, `avr:steps-begin` and `avr:steps-end`. Setup steps get their own pair before `startRecording()`, `avr:setup-begin` and `avr:setup-end`. A later export replaces only those blocks, so the config, imports, helpers and login around them are kept.
+An exported file keeps its recorded steps between two marker comments, `takeone:steps-begin` and `takeone:steps-end`. Setup steps get their own pair before `startRecording()`, `takeone:setup-begin` and `takeone:setup-end`. A later export replaces only those blocks, so the config, imports, helpers and login around them are kept.
 
 ```ts
     await s.startRecording();
-    // avr:steps-begin 044282aba2 (replaced by `avr session export`; edits outside this block are kept)
+    // takeone:steps-begin 044282aba2 (replaced by `takeone session export`; edits outside this block are kept)
     await s.click({ role: "button", name: "Create project" });
-    // avr:steps-end
+    // takeone:steps-end
     await s.stopRecording();
 ```
 
@@ -175,8 +175,8 @@ export default withExplore(
     await s.run(login, "login");
     await s.goto(`${BASE}/projects`);
     await s.startRecording();
-    // avr:steps-begin
-    // avr:steps-end
+    // takeone:steps-begin
+    // takeone:steps-end
     await s.stopRecording();
   }),
   { setup: login, pages: [] },
@@ -195,7 +195,7 @@ The export refuses to write, with a non-zero exit code, in four cases:
 ### Failures are loud
 
 - A miss lists the closest elements and what the page shows: headings, alerts and body text. A login page or a "not found" page is named as such.
-- `find`, `explore`, `look` and `do` give up with a non-zero exit code instead of hanging. `AVR_BUDGET=<seconds>` raises the limit.
+- `find`, `explore`, `look` and `do` give up with a non-zero exit code instead of hanging. `TAKEONE_BUDGET=<seconds>` raises the limit.
 - A misspelled session method such as `s.waitForUrl()` fails when the scenario loads, with a suggestion, before any browser starts.
 - A screenshot that times out no longer discards the inventory.
 
@@ -203,31 +203,31 @@ The export refuses to write, with a non-zero exit code, in four cases:
 
 Writing the scenario by hand still works, and the exported file is an ordinary scenario you can edit.
 
-1. **`avr dry-run scenario.ts`** runs the scenario at the same pace as a recording, with the same typing cadence, waits, cursor travel and click holds. It skips capture and render, and screenshots every step into one `contact-sheet.jpg`. A dry run that passes is a recording that will pass. `--scale 0.35` makes the sheet cheaper. `--fast` skips all pacing; it is quicker, but the page no longer sees what the recording will send it, so it can pass where the recording fails.
-2. **`avr record scenario.ts`** drives the real browser with human pacing, captures, then renders. Prints the video path and an `output-keyframes.jpg` sheet.
-3. **`avr render <dir>`** re-renders an existing capture with a different look, size, fps or format. No browser involved.
+1. **`takeone dry-run scenario.ts`** runs the scenario at the same pace as a recording, with the same typing cadence, waits, cursor travel and click holds. It skips capture and render, and screenshots every step into one `contact-sheet.jpg`. A dry run that passes is a recording that will pass. `--scale 0.35` makes the sheet cheaper. `--fast` skips all pacing; it is quicker, but the page no longer sees what the recording will send it, so it can pass where the recording fails.
+2. **`takeone record scenario.ts`** drives the real browser with human pacing, captures, then renders. Prints the video path and an `output-keyframes.jpg` sheet.
+3. **`takeone render <dir>`** re-renders an existing capture with a different look, size, fps or format. No browser involved.
 
-Use `--no-render` on `record` for a pure two-pass flow. `avr explore` and `avr find`, described below, inventory whole pages by URL.
+Use `--no-render` on `record` for a pure two-pass flow. `takeone explore` and `takeone find`, described below, inventory whole pages by URL.
 
 ## MCP server
 
-`avr mcp` runs everything above as a local MCP server over stdio. It launches Chrome itself, so an agent can rehearse, export, dry-run and record without a shell. Each `avr_do` and `avr_look` reply carries the numbered screenshot itself, so one call both acts and shows the page.
+`takeone mcp` runs everything above as a local MCP server over stdio. It launches Chrome itself, so an agent can rehearse, export, dry-run and record without a shell. Each `takeone_do` and `takeone_look` reply carries the numbered screenshot itself, so one call both acts and shows the page.
 
 ```bash
-claude mcp add avr -- npx avr mcp          # Claude Code
-codex mcp add avr -- npx avr mcp           # Codex
+claude mcp add takeone -- npx takeone mcp          # Claude Code
+codex mcp add takeone -- npx takeone mcp           # Codex
 ```
 
-Tools: `avr_start` (an optional login through a scenario's `explore.setup`, headed, viewport), `avr_do`, `avr_look`, `avr_mark`, `avr_journal`, `avr_export`, `avr_dry_run` (returns the contact sheet), `avr_record` (returns the keyframe sheet), `avr_stop`. The server and the CLI share one session, so an agent can use both. The browser the server opened closes when the client disconnects. The server also binds to `avr-mcp`.
+Tools: `takeone_start` (an optional login through a scenario's `explore.setup`, headed, viewport), `takeone_do`, `takeone_look`, `takeone_mark`, `takeone_journal`, `takeone_export`, `takeone_dry_run` (returns the contact sheet), `takeone_record` (returns the keyframe sheet), `takeone_stop`. The server and the CLI share one session, so an agent can use both. The browser the server opened closes when the client disconnects. The server also binds to `takeone-mcp`.
 
-To run a second session on the same machine, set a different port, for example `AVR_SESSION_PORT=9322`. It gets its own browser and profile.
+To run a second session on the same machine, set a different port, for example `TAKEONE_SESSION_PORT=9322`. It gets its own browser and profile.
 
 ## Exploring a page
 
 Add an `explore` plan to the scenario. It is optional: scenarios without one still record normally.
 
 ```ts
-import { withExplore, defineScenario } from "agentic-video-recording";
+import { withExplore, defineScenario } from "takeone";
 
 export default withExplore(
   defineScenario({ name: "console-tour" }, async (s) => {
@@ -259,22 +259,22 @@ export default withExplore(
 ```
 
 ```bash
-avr explore scenario.ts            # -> .avr/inventory.json, pages.jpg, inventory.html
-avr explore scenario.ts --list     # print the inventory instead of only writing files
-avr explore http://localhost:3000/pricing --base http://localhost:3000   # a URL, no scenario
+takeone explore scenario.ts            # -> .takeone/inventory.json, pages.jpg, inventory.html
+takeone explore scenario.ts --list     # print the inventory instead of only writing files
+takeone explore http://localhost:3000/pricing --base http://localhost:3000   # a URL, no scenario
 ```
 
-The index lands at `.avr/inventory.json`. Handles stay resolvable across later runs: exploring one page does not drop entries for pages you did not revisit.
+The index lands at `.takeone/inventory.json`. Handles stay resolvable across later runs: exploring one page does not drop entries for pages you did not revisit.
 
 ### Reading the inventory
 
 ```
-$ avr explore scenario.ts
+$ takeone explore scenario.ts
 [1/2] http://localhost:3000/projects/abc
   81 elements, 0 ambiguous
 [2/2] http://localhost:3000/projects/abc/databases
   61 elements, 8 ambiguous
-Index -> .avr/inventory.json
+Index -> .takeone/inventory.json
 ```
 
 ```jsonc
@@ -304,11 +304,11 @@ Elements that share a role and a name are flagged, so ambiguity is something you
 
 ### Asking what is on a page
 
-`avr find` answers one question without writing a scenario. Omit `--name` to list everything with a role.
+`takeone find` answers one question without writing a scenario. Omit `--name` to list everything with a role.
 
 ```bash
-avr find http://localhost:3000/projects/abc/databases --role link --name "PostgreSQL" --state state.json
-avr find http://localhost:3000/pricing --role button
+takeone find http://localhost:3000/projects/abc/databases --role link --name "PostgreSQL" --state state.json
+takeone find http://localhost:3000/pricing --role button
 ```
 
 It prints each match with a `nth` index and its screen position, which is usually enough to pick an address in one shot.
@@ -382,7 +382,7 @@ await s.click({ role: "heading", name: "Store", near: "store-132023" });
 await s.click({ role: "button", name: "Delete", near: "walter@example.com" });
 ```
 
-The match that shares the smallest container with that text wins. `avr do click "store" --nth 3` journals the step with `near` on its own when the tied elements have text that sets them apart.
+The match that shares the smallest container with that text wins. `takeone do click "store" --nth 3` journals the step with `near` on its own when the tied elements have text that sets them apart.
 
 An ambiguous address lists its siblings, what sets each apart, and the fix:
 
@@ -413,26 +413,26 @@ Automatically shortened waits are split so no cut begins during a camera move. W
 
 ## Interactive sessions
 
-`avr do` starts this session for you on its first command, so you rarely need to manage it. Without one, `avr explore`, `avr find`, and recordings relaunch a browser and re-login on every call. When you are working against a logged-in app, start one long-lived browser instead and let every command attach to it.
+`takeone do` starts this session for you on its first command, so you rarely need to manage it. Without one, `takeone explore`, `takeone find`, and recordings relaunch a browser and re-login on every call. When you are working against a logged-in app, start one long-lived browser instead and let every command attach to it.
 
 ```bash
-avr session start --scenario scenario.ts    # launches once, runs explore.setup for login
-avr session status                          # running | stale | none, plus the current URL
+takeone session start --scenario scenario.ts    # launches once, runs explore.setup for login
+takeone session status                          # running | stale | none, plus the current URL
 
-avr explore scenario.ts                     # attaches: "already logged in", no relaunch
-avr find /projects/abc/databases --role button --name "Create"   # no --base needed
-avr session stop
+takeone explore scenario.ts                     # attaches: "already logged in", no relaunch
+takeone find /projects/abc/databases --role button --name "Create"   # no --base needed
+takeone session stop
 ```
 
-With a session running, `avr find` takes a path and uses the session's own origin, so no `--base` or state file is needed. Pass `--no-session` to any command to force a fresh browser.
+With a session running, `takeone find` takes a path and uses the session's own origin, so no `--base` or state file is needed. Pass `--no-session` to any command to force a fresh browser.
 
 This is the fastest loop when you are discovering what to record: explore, ask `find`, explore again, and only launch a browser once for the actual recording.
 
 ## Tips for agents
 
-**Rehearse first.** `avr do` starts a session on its own, logs in once with `--scenario`, and prints what every step changed. Export the rehearsal instead of writing the scenario from memory.
+**Rehearse first.** `takeone do` starts a session on its own, logs in once with `--scenario`, and prints what every step changed. Export the rehearsal instead of writing the scenario from memory.
 
-**Explore for the whole-page view.** `avr explore` and `avr find` attach to the same session, so they cost no relaunch. Use them when you want every element on a page by URL; use `avr do` and `avr look` for states that only exist after a click.
+**Explore for the whole-page view.** `takeone explore` and `takeone find` attach to the same session, so they cost no relaunch. Use them when you want every element on a page by URL; use `takeone do` and `takeone look` for states that only exist after a click.
 
 **Reach for `ready()` instead of `wait(3000)`.** Single-page apps render after `load`, so a fixed wait is either too short or wasted. `ready()` waits briefly for the network to go quiet, then waits for the interactive element count to settle, and reports how many elements it found. An app that polls forever still becomes ready, because the element count decides. If nothing visible settles within the timeout, `ready()` throws instead of reporting success.
 
@@ -444,17 +444,17 @@ await s.click({ role: "button", name: "New project" });
 
 **Say what the element is.** `{ role: "button", name: "New project" }` outlives a CSS selector. Use a selector only when there is no accessible name to point at.
 
-**Ask, do not guess.** When you are unsure an element exists or what it is called, `await s.find({ role, name })`, `await s.inventory()`, or `avr find` answers directly. `await s.handles()` lists the explored handles for the current page.
+**Ask, do not guess.** When you are unsure an element exists or what it is called, `await s.find({ role, name })`, `await s.inventory()`, or `takeone find` answers directly. `await s.handles()` lists the explored handles for the current page.
 
 **Work in groups.** If the recording touches several similar controls, address the family with a RegExp once, then iterate. That is one address to get right instead of one per element.
 
-**Keep the index warm.** `avr explore` merges into the existing index, so re-exploring the page you changed leaves every other handle working. Re-run it after a UI change rather than editing handles by hand.
+**Keep the index warm.** `takeone explore` merges into the existing index, so re-exploring the page you changed leaves every other handle working. Re-run it after a UI change rather than editing handles by hand.
 
-**Do not write throwaway probe scripts.** When you need to know what is on a page or what a click did, `avr do` and `avr look` answer from the browser that is already open. `avr find`, `avr explore`, and `await s.inventory()` cover whole pages. A hand-written Playwright script relaunches the browser, re-logs-in, and gives you one answer; `find` against a live session gives you the same answer from the browser that is already open. If you catch yourself about to write `probe.mjs`, run `avr find` instead.
+**Do not write throwaway probe scripts.** When you need to know what is on a page or what a click did, `takeone do` and `takeone look` answer from the browser that is already open. `takeone find`, `takeone explore`, and `await s.inventory()` cover whole pages. A hand-written Playwright script relaunches the browser, re-logs-in, and gives you one answer; `find` against a live session gives you the same answer from the browser that is already open. If you catch yourself about to write `probe.mjs`, run `takeone find` instead.
 
-**Check the dry run, then record.** `avr dry-run` is one image and no encoder, and it paces the page exactly as the recording will. Everything that can be wrong about an address or a timing is visible there.
+**Check the dry run, then record.** `takeone dry-run` is one image and no encoder, and it paces the page exactly as the recording will. Everything that can be wrong about an address or a timing is visible there.
 
-**Prefer many short recordings to one long take.** `startRecording`/`stopRecording` can be called repeatedly; `record --no-render` plus `avr render` keeps re-styling free.
+**Prefer many short recordings to one long take.** `startRecording`/`stopRecording` can be called repeatedly; `record --no-render` plus `takeone render` keeps re-styling free.
 
 ## Session API
 
@@ -500,7 +500,7 @@ Every value has a default and can be set in the scenario, via `--config '{...}'`
   capture:  { format: "jpeg", quality: 92 },
   keys:     { mode: "shortcuts" /* shortcuts|all|manual|off */, hold: 1200, gap: 900, platform: "mac", position: "bottom", offset: 0.1, fontSize: 34 },
   dryRun:   { scale: 0.5, contactSheet: true, columns: 3 },
-  explore:  { index: ".avr/inventory.json", max: 250, scroll: true },
+  explore:  { index: ".takeone/inventory.json", max: 250, scroll: true },
 }
 ```
 
@@ -515,7 +515,7 @@ Output and browser size are independent. Record a 1920x1080 viewport at 2x and r
 ## Authenticated state
 
 ```bash
-npx avr login --url https://app.example.com -o state.json   # needs a display; do this on your Mac
+npx takeone login --url https://app.example.com -o state.json   # needs a display; do this on your Mac
 ```
 
 Log in, press Enter, and the cookies, localStorage and IndexedDB are saved. Point `browser.storageState` at the file. For anything else (extensions, service workers), pass a real profile directory with `browser.userDataDir` or `--profile`.
@@ -529,7 +529,7 @@ Log in, press Enter, and the cookies, localStorage and IndexedDB are saved. Poin
 ## Programmatic use
 
 ```ts
-import { recordScenario, renderRecording, dryRunScenario } from "agentic-video-recording";
+import { recordScenario, renderRecording, dryRunScenario } from "takeone";
 import scenario from "./scenario.js";
 
 const rec = await recordScenario(scenario, { outDir: "out/demo" });

@@ -54,7 +54,7 @@ function defaultOutDir(scenarioFile: string, name?: string) {
 }
 
 const program = new Command();
-program.name("avr").description(pkg.description).version(pkg.version);
+program.name("takeone").description(pkg.description).version(pkg.version);
 
 const sharedOpts = (cmd: Command) =>
   cmd
@@ -75,7 +75,7 @@ sharedOpts(
     .description("Run a scenario, capture it, and (by default) render the final video")
     .argument("<scenario>", "scenario .ts/.js file")
     .option("-o, --out <dir>", "output directory")
-    .option("--no-render", "only capture raw frames + manifest; render later with `avr render`")
+    .option("--no-render", "only capture raw frames + manifest; render later with `takeone render`")
     .option("--no-contact-sheet", "skip the keyframe sheet"),
 ).action(async (file: string, o) => {
   const scenario = await loadScenario(file);
@@ -99,8 +99,8 @@ sessionCmd
   .description("Launch the session browser and log in once (spawns a detached daemon)")
   .option("--scenario <file>", "reuse this scenario's config and explore.setup for login")
   .option("--url <url>", "page to open after setup")
-  .option("--port <n>", "CDP debug port (or AVR_SESSION_PORT)", String(process.env.AVR_SESSION_PORT || DEFAULT_SESSION_PORT))
-  .option("--profile <dir>", "persistent Chromium user data dir", "/tmp/avr-session")
+  .option("--port <n>", "CDP debug port (or TAKEONE_SESSION_PORT)", String(process.env.TAKEONE_SESSION_PORT || DEFAULT_SESSION_PORT))
+  .option("--profile <dir>", "persistent Chromium user data dir", "/tmp/takeone-session")
   .option("--headed", "show the browser window")
   .action(async (o) => {
     const existing = readSession();
@@ -202,7 +202,7 @@ program
 
 program
   .command("mark")
-  .description('Name a beat in the journal. `avr mark setup`: unrecorded setup begins. `avr mark start`: the recording begins. Everything before either was looking around')
+  .description('Name a beat in the journal. `takeone mark setup`: unrecorded setup begins. `takeone mark start`: the recording begins. Everything before either was looking around')
   .argument("<name>")
   .action(async (name: string) => {
     const info = await ensureSession({ log });
@@ -222,11 +222,11 @@ function parseIds(parts: string[]): number[] {
 
 program
   .command("journal")
-  .description("Show the steps taken with `avr do` and which of them will be exported. Detours are left out automatically")
+  .description("Show the steps taken with `takeone do` and which of them will be exported. Detours are left out automatically")
   .argument("[action]", "drop | keep | setup | clear")
   .argument("[ids...]", "step ids or ranges, e.g. 5-8")
   .action(async (action: string | undefined, ids: string[]) => {
-    if (action && !["drop", "keep", "setup", "clear"].includes(action)) throw new Error("Use: avr journal [drop|keep|setup <ids>] [clear]");
+    if (action && !["drop", "keep", "setup", "clear"].includes(action)) throw new Error("Use: takeone journal [drop|keep|setup <ids>] [clear]");
     const info = await ensureSession({ log });
     printReply(await sendCommand(info, "/journal", { action, ids: parseIds(ids) }));
   });
@@ -262,7 +262,7 @@ program
   .option("--within <selector>", "scope the search to a container")
   .option("--state <file>", "Playwright storage state file (cookies, localStorage, IndexedDB)")
   .option("--profile <dir>", "persistent Chromium user data dir")
-  .option("--no-session", "ignore a running avr session and launch a fresh browser")
+  .option("--no-session", "ignore a running takeone session and launch a fresh browser")
   .action(async (url: string, o) => {
     let config = resolveConfig(parseOverrides(o));
     let base = o.base ?? "";
@@ -322,7 +322,7 @@ program
   .option("--wait-for <selector>", "wait for this selector on each page before inventorying")
   .option("--settle <ms>", "extra settle time per page")
   .option("--no-html", "skip the HTML inventory page")
-  .option("--no-session", "ignore a running avr session and launch a fresh browser")
+  .option("--no-session", "ignore a running takeone session and launch a fresh browser")
   .option("--list", "print the inventory to stdout as text instead of writing files")
   .action(async (target: string, o) => {
     const isScenario = /\.(ts|mts|cts|tsx|js|mjs|cjs)$/.test(target);
@@ -450,7 +450,7 @@ program
   .action((file: string) => {
     writeFileSync(
       resolve(file),
-      `import { defineScenario } from "agentic-video-recording";
+      `import { defineScenario } from "takeone";
 
 export default defineScenario(
   {
@@ -477,28 +477,28 @@ export default defineScenario(
     console.log(`Wrote ${resolve(file)}`);
   });
 
-const GUIDE = `avr in one screen
+const GUIDE = `takeone in one screen
 
 THE LOOP (no scenario file, no selectors, no probe scripts)
-  avr do goto http://localhost:3000/projects        # first command starts the browser
-  avr do click 6                                    # a number from the view below
-  avr do type 5 "acme-prod"
-  avr do wait-for "Database ready" --timeout 120000 # slow server step
-  avr do zoom 14                                    # camera only
-  avr do zoom-out
-  avr session export demo.ts              # replays the path to prove it, then writes it
-  avr record demo.ts                      # -> output.mp4
+  takeone do goto http://localhost:3000/projects        # first command starts the browser
+  takeone do click 6                                    # a number from the view below
+  takeone do type 5 "acme-prod"
+  takeone do wait-for "Database ready" --timeout 120000 # slow server step
+  takeone do zoom 14                                    # camera only
+  takeone do zoom-out
+  takeone session export demo.ts              # replays the path to prove it, then writes it
+  takeone record demo.ts                      # -> output.mp4
 
   Logged-in app: add --scenario <file with explore.setup> to the FIRST command. It logs in once.
 
 SEEING THE PAGE
-  \`avr look\` and every \`avr do\` that lands on a new page or opens a dialog print the VIEW:
+  \`takeone look\` and every \`takeone do\` that lands on a new page or opens a dialog print the VIEW:
   every element on screen, numbered, grouped by region (header, nav, sidebar, main, dialog),
   with what the markup says it does:
       12 link "Auth" → /projects [current]
       31 button "More" [icon ellipsis] (opens menu)
       40 switch "Email alerts" [off]
-  and the path of a screenshot with the same numbers drawn on it (view: /tmp/avr-view-…/007-step7.jpg).
+  and the path of a screenshot with the same numbers drawn on it (view: /tmp/takeone-view-…/007-step7.jpg).
   Open the screenshot when the text is not enough: icons, layout, what a chart shows.
   Off-screen content is summarised as its headings; \`scroll-to <n>\` or \`look --all\`.
   Other steps print only what changed: + new elements (with their numbers), - removed,
@@ -514,17 +514,17 @@ TARGETS
 EXPLORING VS RECORDING
   Click around freely. Steps that end up back where they started (open a menu, close it; visit
   a page, come back) are detours and are left out of the export automatically.
-  avr mark setup           unrecorded setup begins (get the app into the state the video starts from)
-  avr mark start           the recording begins; with no setup mark, everything before was looking around
-  avr journal              where each step landed    avr journal drop 5-8 | keep 6 | setup 3 | clear
+  takeone mark setup           unrecorded setup begins (get the app into the state the video starts from)
+  takeone mark start           the recording begins; with no setup mark, everything before was looking around
+  takeone journal              where each step landed    takeone journal drop 5-8 | keep 6 | setup 3 | clear
 
 EXPORTING INTO AN EXISTING FILE
-  Steps live between "// avr:steps-begin" and "// avr:steps-end". A re-export replaces only
+  Steps live between "// takeone:steps-begin" and "// takeone:steps-end". A re-export replaces only
   that block; config, helpers and login around it are kept. To add steps to a hand-written
   scenario (one with your login), put those two lines in its body and export into it.
-  Setup steps use their own pair before startRecording(): "// avr:setup-begin" / "// avr:setup-end".
+  Setup steps use their own pair before startRecording(): "// takeone:setup-begin" / "// takeone:setup-end".
   Refused: no markers, hand-edited block, or --force on the file the session logged in from.
-  avr dry-run paces the page exactly like avr record (pass there = pass in the recording); --fast does not.
+  takeone dry-run paces the page exactly like takeone record (pass there = pass in the recording); --fast does not.
 
 WHEN SOMETHING FAILS
   The error shows the closest elements and what the page says (headings, alerts, text).
@@ -532,20 +532,20 @@ WHEN SOMETHING FAILS
   Nothing hangs: commands give up with a non-zero exit code. Do not wrap them in long timeouts.
 
 MCP
-  \`avr mcp\` serves all of this as MCP tools (avr_do, avr_look, avr_export, avr_dry_run, avr_record, …).
+  \`takeone mcp\` serves all of this as MCP tools (takeone_do, takeone_look, takeone_export, takeone_dry_run, takeone_record, …).
   Each reply carries the screenshot itself, so one call acts and shows the page.
-  AVR_SESSION_PORT=9322 gives a second agent on the same machine its own browser.
+  TAKEONE_SESSION_PORT=9322 gives a second agent on the same machine its own browser.
 
 THE LOOK (after the export works)
   Edit the exported file's config: viewport/deviceScaleFactor (capture), output (video size,
-  fps), frame (padding, background, radius), cursor, zoom, keys. \`avr render <dir>\` restyles
+  fps), frame (padding, background, radius), cursor, zoom, keys. \`takeone render <dir>\` restyles
   an existing capture without recording again. For a sharp 4K output, capture at dpr 3.
   Waits play in real time unless wrapped: s.lapse(8, () => ...) or s.trim(() => ...).
 `;
 
 program
   .command("mcp")
-  .description("Run avr as a local MCP server over stdio. It launches Chrome itself; every step returns the numbered view and its screenshot")
+  .description("Run takeone as a local MCP server over stdio. It launches Chrome itself; every step returns the numbered view and its screenshot")
   .action(async () => {
     const { runMcpServer } = await import("./mcp.js");
     await runMcpServer();
@@ -563,10 +563,10 @@ function progress(done: number, total: number) {
 
 // No discovery command may hang silently: a stuck page is a failure, reported as one.
 const BUDGETS: Record<string, number> = { find: 60, explore: 120, look: 60 };
-const budget = Number(process.env.AVR_BUDGET ?? BUDGETS[process.argv[2] ?? ""] ?? 0);
+const budget = Number(process.env.TAKEONE_BUDGET ?? BUDGETS[process.argv[2] ?? ""] ?? 0);
 if (budget > 0) {
   setTimeout(() => {
-    console.error(`avr ${process.argv[2]} gave up after ${budget}s: the page never became ready. Raise with AVR_BUDGET=<seconds> if the app is really that slow.`);
+    console.error(`takeone ${process.argv[2]} gave up after ${budget}s: the page never became ready. Raise with TAKEONE_BUDGET=<seconds> if the app is really that slow.`);
     process.exit(124);
   }, budget * 1000).unref();
 }

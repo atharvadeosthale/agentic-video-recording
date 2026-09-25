@@ -27,7 +27,7 @@ import {
 
 /**
  * Anything that can be pointed at, in order of how durable the address is:
- * a `@eNN` handle from `avr explore`, a `{ role, name }` pair, a Playwright locator,
+ * a `@eNN` handle from `takeone explore`, a `{ role, name }` pair, a Playwright locator,
  * a CSS selector, a point, or a rectangle.
  */
 export type Target =
@@ -399,7 +399,7 @@ export class Session {
   // ----------------------------------------------------------------------
 
   /**
-   * Load the inventory written by `avr explore`. Handles like `@e12` resolve against
+   * Load the inventory written by `takeone explore`. Handles like `@e12` resolve against
    * it. Missing file is not an error: selectors keep working without it.
    */
   private loadIndex(): AvrIndex | null {
@@ -434,8 +434,8 @@ export class Session {
         const collisions = this.handleCollisions(target);
         throw new Error(
           collisions.length > 1
-            ? `${target} is defined on ${collisions.length} pages (${collisions.join(", ")}) and not on ${this.page.url()}. Handles are per page: run \`avr explore\` for this page, or address the element by role+name.`
-            : `${target} is not in the inventory for ${this.page.url()}. Run \`avr explore\` to refresh it, or address the element by role+name instead.`,
+            ? `${target} is defined on ${collisions.length} pages (${collisions.join(", ")}) and not on ${this.page.url()}. Handles are per page: run \`takeone explore\` for this page, or address the element by role+name.`
+            : `${target} is not in the inventory for ${this.page.url()}. Run \`takeone explore\` to refresh it, or address the element by role+name instead.`,
         );
       }
       for (const cand of candidateLocators(this.page, entry)) {
