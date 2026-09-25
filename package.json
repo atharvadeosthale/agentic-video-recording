@@ -7,11 +7,11 @@
   "author": "Atharva Deosthale",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atharvadeosthale/agentic-video-recording.git"
+    "url": "git+https://github.com/atharvadeosthale/takeone.git"
   },
-  "homepage": "https://github.com/atharvadeosthale/agentic-video-recording#readme",
+  "homepage": "https://github.com/atharvadeosthale/takeone#readme",
   "bugs": {
-    "url": "https://github.com/atharvadeosthale/agentic-video-recording/issues"
+    "url": "https://github.com/atharvadeosthale/takeone/issues"
   },
   "keywords": [
     "screen-recording",

@@ -227,7 +227,7 @@ To run a second session on the same machine, set a different port, for example `
 A skill that teaches coding agents the whole workflow ships in `skills/takeone`. Install it with the [skills](https://skills.sh) CLI:
 
 ```bash
-npx skills add atharvadeosthale/agentic-video-recording
+npx skills add atharvadeosthale/takeone
 ```
 
 ## Exploring a page
