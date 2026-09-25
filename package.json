@@ -1,6 +1,6 @@
 {
   "name": "takeone",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scripted, agent-friendly screen recordings of web apps with Screen Studio style cursor, zoom and framing. Runs headless.",
   "type": "module",
   "license": "MIT",

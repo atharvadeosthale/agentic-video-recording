@@ -19,7 +19,7 @@ export function ensureChromium(cfg: BrowserConfig, log: (s: string) => void = ()
   const managed = chromium.executablePath();
   if (managed && existsSync(managed)) return;
   log("Chromium not found, downloading via Playwright (one time)...");
-  const res = spawnSync(process.execPath, [require.resolve("playwright/cli"), "install", "chromium"], {
+  const res = spawnSync(process.execPath, [playwrightCli(), "install", "chromium"], {
     stdio: "inherit",
   });
   if (res.status !== 0) throw new Error("Failed to install Chromium. Run `npx playwright install chromium` manually or set browser.executablePath.");
@@ -27,7 +27,13 @@ export function ensureChromium(cfg: BrowserConfig, log: (s: string) => void = ()
 
 // `require` shim for ESM
 import { createRequire } from "node:module";
+import { dirname as dirOf, join as joinPath } from "node:path";
 const require = createRequire(import.meta.url);
+
+/** Playwright's own CLI. Its package exports do not include "./cli", so find it next to package.json. */
+export function playwrightCli(): string {
+  return joinPath(dirOf(require.resolve("playwright/package.json")), "cli.js");
+}
 
 /** Keeps target=_blank links and window.open in the recorded tab. */
 export const SAME_TAB_SCRIPT = `document.addEventListener('click', (e) => {

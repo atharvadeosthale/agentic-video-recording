@@ -1,6 +1,6 @@
 ---
 name: takeone
-description: Record polished Screen Studio style videos of web apps (smooth cursor, click ripples, eased zooms, padded frame) with the takeone MCP server, CLI or TypeScript SDK. Use this whenever the user wants a demo video, product walkthrough, feature clip, tutorial recording, launch video or screen recording of a website or web app, even if they don't name takeone, and whenever a project has takeone scenario files or a .takeone folder.
+description: Record polished Screen Studio style videos of web apps (smooth cursor, click ripples, eased zooms, padded frame) with the takeone MCP server, CLI or TypeScript SDK, including installing and setting it up from nothing. Use this whenever the user wants a demo video, product walkthrough, feature clip, tutorial recording, launch video or screen recording of a website or web app, even if they don't name takeone, and whenever a project has takeone scenario files or a .takeone folder.
 ---
 
 # takeone
@@ -15,27 +15,51 @@ The workflow has five stages, in this order:
 4. **Dry run.** Runs at recording pace and returns a contact sheet (one image with a frame per step).
 5. **Record.** Captures and renders the video.
 
-## Setup
+## Install and set up
 
-Prefer the MCP server. Each reply carries the screenshot, so one call both acts and shows the page:
+Do this once per project, before the first recording. Each step is safe to repeat.
 
-```bash
-claude mcp add takeone -- npx -y takeone mcp     # Claude Code
-codex mcp add takeone -- npx -y takeone mcp      # Codex
-```
+1. **Check whether it is already installed.** If `package.json` (in the project or a `videos/` folder) lists `takeone`, skip to step 4.
+2. **Check Node.** `node -v` must be 20 or newer. If Node is missing or older, tell the user and stop: nothing else works without it.
+3. **Install the package where the scenarios will live.** Exported scenarios run `import … from "takeone"`, so the package has to be installed next to them.
+   - **A JavaScript or TypeScript project** (it has a `package.json`): add takeone as a dev dependency with the project's own package manager, which the lockfile tells you: `npm i -D takeone`, `pnpm add -D takeone`, `yarn add -D takeone` or `bun add -d takeone`.
+   - **Anything else, or when the app's dependencies should stay untouched:** give the videos their own folder.
+     ```bash
+     mkdir -p videos && cd videos && npm init -y && npm pkg set type=module && npm i -D takeone
+     ```
+     Run every takeone command from that folder. Scenario files, the `.takeone/` state folder and `recordings/` all stay in it.
 
-Without MCP, use the CLI the same way: `npx takeone <command>`. `npx takeone guide` prints the whole workflow on one screen. Install it in the project (`npm i -D takeone`) so that exported scenarios can import it. Chromium and ffmpeg download on first use. Run `npx takeone doctor` to check both.
+   The CLI comes with the package: run it as `npx takeone <command>`. `npx takeone guide` prints the whole workflow on one screen. A global install (`npm i -g takeone`) gives a bare `takeone` command, but scenarios still need the local install.
+4. **Prepare the machine.** Run `npx takeone setup`. It:
+   - downloads Chromium (about 650 MB, once per machine)
+   - checks ffmpeg, which ships with the package
+   - starts a headless browser to prove recording will work
+
+   It ends with `Ready.` or with `✗` lines that say what is wrong. On a Linux server, missing system libraries are the usual failure. Fix them with `npx takeone setup --with-deps`, which needs sudo. If you can't use sudo, give the user that command to run.
+5. **Register the MCP server (optional, recommended).** Its replies carry the screenshot, so one call both acts and shows the page. Register it for the agent you are running in:
+   ```bash
+   claude mcp add takeone -- npx -y takeone mcp     # Claude Code
+   codex mcp add takeone -- npx -y takeone mcp      # Codex
+   ```
+   Other clients take `{"command": "npx", "args": ["-y", "takeone", "mcp"]}` in their MCP config.
+
+   MCP servers load when a session starts, so the tools only appear in the next session. Don't wait for them: use the CLI for the rest of this session, and tell the user that restarting gives them the MCP tools. The MCP server and the CLI share one browser session, so switching between them loses nothing.
+
+To update later, run `npm i -D takeone@latest`, then `npx takeone session stop` so the running browser session picks up the new version.
+
+## The commands
 
 | Step | MCP tool | CLI |
 |---|---|---|
 | Start, optionally with login | `takeone_start {scenario, url, headed, viewport}` | first command with `--scenario login.ts` |
-| Act | `takeone_do {verb, target, text}` | `takeone do <verb> <target> [text]` |
-| Look at the page | `takeone_look {filter, role, all}` | `takeone look` |
-| Mark | `takeone_mark {name: "start"}` | `takeone mark start` |
-| Journal | `takeone_journal {action, ids}` | `takeone journal [drop\|keep\|setup] 3-5` |
-| Export | `takeone_export {file}` | `takeone session export demo.ts` |
-| Dry run | `takeone_dry_run {file}` | `takeone dry-run demo.ts` |
-| Record | `takeone_record {file}` | `takeone record demo.ts` |
+| Act | `takeone_do {verb, target, text}` | `npx takeone do <verb> <target> [text]` |
+| Look at the page | `takeone_look {filter, role, all}` | `npx takeone look` |
+| Mark | `takeone_mark {name: "start"}` | `npx takeone mark start` |
+| Journal | `takeone_journal {action, ids}` | `npx takeone journal [drop\|keep\|setup] 3-5` |
+| Export | `takeone_export {file}` | `npx takeone session export demo.ts` |
+| Dry run | `takeone_dry_run {file}` | `npx takeone dry-run demo.ts` |
+| Record | `takeone_record {file}` | `npx takeone record demo.ts` |
+| Stop the browser | `takeone_stop` | `npx takeone session stop` |
 
 Verbs: `goto`, `click`, `type`, `press`, `hover`, `scroll`, `scroll-to`, `wait-for`, `wait-url`, `wait`, `zoom`, `zoom-out`.
 

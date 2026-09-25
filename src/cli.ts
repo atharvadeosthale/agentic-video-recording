@@ -444,6 +444,59 @@ program
   });
 
 program
+  .command("setup")
+  .description("Get this machine ready to record: download Chromium, check ffmpeg, and prove a headless browser starts. Safe to run again")
+  .option("--with-deps", "also install the system libraries Chromium needs on Linux (uses sudo when not root)")
+  .option("--chromium <path>", "use this Chromium/Chrome instead of downloading one")
+  .action(async (o) => {
+    const steps: { step: string; ok: boolean; detail: string }[] = [];
+    const say = (step: string, ok: boolean, detail: string) => {
+      steps.push({ step, ok, detail });
+      console.log(`${ok ? "✓" : "✗"} ${step}: ${detail}`);
+    };
+    const major = Number(process.versions.node.split(".")[0]);
+    say("node", major >= 20, major >= 20 ? process.version : `${process.version} is too old; install Node 20 or newer`);
+
+    const cfg = resolveConfig({ browser: { executablePath: o.chromium } });
+    if (o.withDeps && process.platform === "linux") {
+      const { spawnSync } = await import("node:child_process");
+      const { playwrightCli } = await import("./browser.js");
+      const cli = playwrightCli();
+      const root = process.getuid?.() === 0;
+      const res = spawnSync(root ? process.execPath : "sudo", root ? [cli, "install-deps", "chromium"] : [process.execPath, cli, "install-deps", "chromium"], { stdio: "inherit" });
+      say("system libraries", res.status === 0, res.status === 0 ? "installed" : "install-deps failed; run it with sudo yourself");
+    }
+    try {
+      const { ensureChromium } = await import("./browser.js");
+      ensureChromium(cfg.browser, log);
+      const info = chromiumInfo(cfg.browser);
+      say("chromium", true, `${info.version ?? "installed"} at ${info.path}`);
+    } catch (e) {
+      say("chromium", false, (e as Error).message);
+    }
+    const ff = ffmpegVersion();
+    say("ffmpeg", !!ff, ff ? ff.split(" Copyright")[0] : "missing; set FFMPEG_PATH to an ffmpeg binary");
+
+    // The real test: can a headless browser start and render a page here?
+    try {
+      const { chromium } = await import("playwright");
+      const { resolveExecutablePath } = await import("./browser.js");
+      const browser = await chromium.launch({ headless: true, executablePath: resolveExecutablePath(cfg.browser) });
+      const page = await browser.newPage();
+      await page.setContent("<h1>takeone</h1>");
+      await browser.close();
+      say("headless launch", true, "Chromium starts and renders a page");
+    } catch (e) {
+      const msg = (e as Error).message.split("\n").slice(0, 3).join(" ");
+      const missingLibs = /shared librar|error while loading|install-deps|dependencies/i.test(msg);
+      say("headless launch", false, missingLibs && process.platform === "linux" ? `system libraries are missing. Run \`npx takeone setup --with-deps\` (needs sudo). ${msg}` : msg);
+    }
+    const ok = steps.every((s) => s.ok);
+    console.log(ok ? "\nReady. Next: npx takeone do goto <url>" : "\nNot ready: fix the ✗ lines above and run setup again.");
+    if (!ok) process.exitCode = 1;
+  });
+
+program
   .command("init")
   .description("Write an example scenario file")
   .argument("[file]", "file to create", "scenario.ts")

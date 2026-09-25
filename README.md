@@ -7,11 +7,11 @@ The core idea: **the agent never drives the browser live.** It writes a scenario
 ## Install
 
 ```bash
-npm install takeone
-npx takeone doctor   # checks Chromium and ffmpeg
+npm install -D takeone
+npx takeone setup    # downloads Chromium, checks ffmpeg, proves a headless browser starts
 ```
 
-Chromium is downloaded automatically on first use via Playwright. ffmpeg ships with the package. To use your own binaries:
+`setup` is safe to run again. On a Linux server without Chromium's system libraries, run `npx takeone setup --with-deps`, which needs sudo. ffmpeg ships with the package. To use your own binaries:
 
 - `--chromium /path/to/chrome` or `browser.executablePath` in config, or `TAKEONE_CHROMIUM_PATH`
 - `FFMPEG_PATH` env var
@@ -224,7 +224,7 @@ To run a second session on the same machine, set a different port, for example `
 
 ## Agent skill
 
-A skill that teaches coding agents the whole workflow ships in `skills/takeone`. Install it with the [skills](https://skills.sh) CLI:
+A skill that teaches coding agents the whole workflow ships in `skills/takeone`: installing the package, setting up the machine, registering the MCP server, rehearsing, exporting and recording. Install it with the [skills](https://skills.sh) CLI:
 
 ```bash
 npx skills add atharvadeosthale/takeone
