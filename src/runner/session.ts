@@ -447,16 +447,34 @@ export class Session {
     }
 
     if (isRoleTarget(target)) {
-      const { locator } = await resolveRoleTarget(this.page, target);
+      const { locator } = await this.untilPresent(() => resolveRoleTarget(this.page, target));
       return locator;
     }
 
     if (isTextTarget(target)) {
-      const { locator } = await resolveTextTarget(this.page, target);
+      const { locator } = await this.untilPresent(() => resolveTextTarget(this.page, target));
       return locator;
     }
 
     throw new Error(`Cannot use ${describe(target)} for this action: pass a selector, a @eNN handle, or a { role, name } target.`);
+  }
+
+  /**
+   * Resolve a named target, waiting for it to appear the way Playwright's own actions do.
+   * A page that is still rendering (skeletons, a filter bar that hydrates late) gets until
+   * the browser timeout; only a target that never shows up is an error. Ambiguity is not
+   * waited on: more matches will not make it less ambiguous.
+   */
+  private async untilPresent<T>(resolve: () => Promise<T>): Promise<T> {
+    const deadline = Date.now() + this.config.browser.timeout;
+    for (;;) {
+      try {
+        return await resolve();
+      } catch (e) {
+        if (!/^No element matched/.test((e as Error).message) || Date.now() >= deadline) throw e;
+        await sleep(250);
+      }
+    }
   }
 
   /** Pages in the index that also define this handle, so the error can explain a collision. */

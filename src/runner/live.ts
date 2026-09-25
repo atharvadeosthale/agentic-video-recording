@@ -14,6 +14,8 @@ import { distinguish } from "../resolver.js";
 export type PlainTarget =
   | string
   | { role: string; name: string; nth?: number; exact?: boolean; near?: string }
+  /** A name matched by a pattern, for names that carry a live count or badge. Written as a RegExp. */
+  | { role: string; pattern: string; nth?: number; near?: string }
   | { text: string; nth?: number; exact?: boolean; near?: string }
   | { x: number; y: number };
 
@@ -137,6 +139,14 @@ export async function addressFor(page: Page, el: InventoryElement): Promise<Plai
   };
   const tie = (hit: { count: number; nth: number; near?: string }) => (hit.count <= 1 ? {} : hit.near ? { near: hit.near } : { nth: hit.nth });
 
+  // "Issues 157" or "v1.64 Popular": the leading label is the element, the rest is a count or a
+  // badge that changes. Address the label, so the scenario survives the next issue or badge.
+  const rest = el.lead ? el.name.slice(el.lead.length).trim() : "";
+  if (el.lead && el.lead.length >= 2 && (/\d/.test(rest) || /^[\p{L}-]{2,12}$/u.test(rest))) {
+    const pattern = `^${escapeRe(el.lead)}(?![\\w.])`;
+    const hit = await nthOf(page.getByRole(el.role as any, { name: new RegExp(pattern) }));
+    if (hit && hit.count === 1) return { role: el.role, pattern };
+  }
   if (el.name && el.name.length <= 60) {
     const hit = await nthOf(page.getByRole(el.role as any, { name: el.name, exact: true }));
     if (hit) return { role: el.role, name: el.name, ...tie(hit) };
@@ -202,29 +212,32 @@ export function parseExplicit(query: string): { target?: PlainTarget; role?: str
 // Execute and print
 // ---------------------------------------------------------------------------
 
+/** A plain target as the session takes it: a pattern becomes a RegExp name. */
+const live = (t: PlainTarget): any => (typeof t === "object" && "pattern" in t ? { role: t.role, name: new RegExp(t.pattern), nth: t.nth, near: t.near } : t);
+
 export async function runStep(s: Session, step: Step): Promise<void> {
   switch (step.verb) {
     case "goto":
       await s.goto(step.url, { waitUntil: "domcontentloaded" });
       return;
     case "click":
-      return s.click(step.target);
+      return s.click(live(step.target));
     case "hover":
-      return s.move(step.target);
+      return s.move(live(step.target));
     case "scrollTo":
-      return s.scrollTo(step.target);
+      return s.scrollTo(live(step.target));
     case "zoom":
-      return s.zoom(step.target);
+      return s.zoom(live(step.target));
     case "zoomOut":
       return s.zoomOut();
     case "type":
-      return s.type(step.target, step.text);
+      return s.type(step.target && live(step.target), step.text);
     case "press":
       return s.press(step.key);
     case "scroll":
       return s.scroll({ dy: step.dy });
     case "waitFor":
-      return s.waitFor(step.target, { state: step.gone ? "hidden" : "visible", timeout: step.timeout });
+      return s.waitFor(live(step.target), { state: step.gone ? "hidden" : "visible", timeout: step.timeout });
     case "waitUrl":
       return s.waitForURL(new RegExp(step.pattern), { timeout: step.timeout });
     case "wait":
@@ -234,7 +247,15 @@ export async function runStep(s: Session, step: Step): Promise<void> {
   }
 }
 
-const lit = (t: PlainTarget | null) => (t === null ? "null" : JSON.stringify(t).replace(/"(\w+)":/g, "$1: ").replace(/,(\w)/g, ", $1").replace(/^\{/, "{ ").replace(/\}$/, " }"));
+const lit = (t: PlainTarget | null): string => {
+  if (t && typeof t === "object" && "pattern" in t) {
+    const { pattern, role, ...rest } = t;
+    const tail = Object.entries(rest).filter(([, v]) => v !== undefined).map(([k, v]) => `, ${k}: ${JSON.stringify(v)}`).join("");
+    return `{ role: ${JSON.stringify(role)}, name: /${pattern.replace(/\//g, "\\/")}/${tail} }`;
+  }
+  return litPlain(t);
+};
+const litPlain = (t: PlainTarget | null) => (t === null ? "null" : JSON.stringify(t).replace(/"(\w+)":/g, "$1: ").replace(/,(\w)/g, ", $1").replace(/^\{/, "{ ").replace(/\}$/, " }"));
 
 export function stepToCode(step: Step): string {
   switch (step.verb) {
@@ -279,6 +300,14 @@ export function stepToCode(step: Step): string {
  */
 export function markDetours(journal: JournalEntry[]): void {
   for (const e of journal) e.detour = false;
+  // Where each step really left the page. A step whose effect landed after it reported (a
+  // slow client-side navigation) is credited with the state the next step started from.
+  const after = new Map<JournalEntry, string>();
+  journal.forEach((e, i) => {
+    const next = journal.slice(i + 1).find((n) => n.ok);
+    after.set(e, e.stateAfter === e.stateBefore && next && next.stateBefore !== e.stateAfter ? next.stateBefore : e.stateAfter);
+  });
+  const changed = (e: JournalEntry) => after.get(e) !== e.stateBefore;
   // Walk forward keeping the "live path": a stack of entries whose states are all distinct.
   const path: JournalEntry[] = [];
   for (const e of journal) {
@@ -291,7 +320,7 @@ export function markDetours(journal: JournalEntry[]): void {
     if (e.step.verb === "mark" && /^(setup|start)$/i.test(e.step.name)) path.length = 0;
     // Typing, key presses and waits often change nothing the fingerprint can see (a canvas
     // terminal, a code editor). Only a click that changes nothing is a likely mistake.
-    const unchanged = e.stateAfter === e.stateBefore && e.step.verb !== "click";
+    const unchanged = !changed(e) && e.step.verb !== "click";
     if (isCameraStep(e.step) || unchanged) {
       path.push(e);
       continue;
@@ -299,12 +328,12 @@ export function markDetours(journal: JournalEntry[]): void {
     // Back where an earlier step left us (or where the journal began): unwind to there.
     let back = -2;
     for (let i = path.length - 1; i >= 0; i--) {
-      if (!isCameraStep(path[i].step) && path[i].stateAfter !== path[i].stateBefore && path[i].stateAfter === e.stateAfter) {
+      if (!isCameraStep(path[i].step) && changed(path[i]) && after.get(path[i]) === after.get(e)) {
         back = i;
         break;
       }
     }
-    if (back === -2 && path.length && firstState(path) === e.stateAfter) back = -1;
+    if (back === -2 && path.length && firstState(path) === after.get(e)) back = -1;
     if (back !== -2) {
       for (const d of path.splice(back + 1)) d.detour = true;
       e.detour = true;

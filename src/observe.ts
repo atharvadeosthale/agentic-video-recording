@@ -110,13 +110,14 @@ export async function observe(page: Page, opts: { max?: number } = {}): Promise<
       elements = inside;
     }
   }
+  elements = numberElements(elements);
   const url = page.url();
   const fingerprint = createHash("sha1")
     .update(
       JSON.stringify([
         url.split("#")[0],
         gist.dialog?.name ?? "",
-        elements.map((e) => `${e.role}|${e.name}|${e.disabled ? 1 : 0}`),
+        elements.map((e) => `${e.role}|${e.name}|${e.disabled ? 1 : 0}|${e.state ?? ""}`),
         gist.headings,
         gist.values,
         gist.focus,
@@ -126,6 +127,35 @@ export async function observe(page: Page, opts: { max?: number } = {}): Promise<
     .slice(0, 12);
   return { ...gist, url, title: inv.title, elements, behind, fingerprint };
 }
+
+/**
+ * Give every element the number the agent sees in the view and on its screenshot. Regions
+ * are kept together, in the order they first appear on the page, so the numbers read like
+ * the page does: header, navigation, then content.
+ */
+export function numberElements(els: InventoryElement[]): InventoryElement[] {
+  const listed = els.filter(listable);
+  const first = new Map<string, number>();
+  listed.forEach((e, i) => {
+    const r = e.region ?? "page";
+    if (!first.has(r)) first.set(r, i);
+  });
+  const numbered = listed
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => first.get(a.e.region ?? "page")! - first.get(b.e.region ?? "page")! || a.i - b.i)
+    .map(({ e }, i) => ({ ...e, label: i + 1 }));
+  // Containers stay addressable by name (zoom onto a card), they just get no number.
+  return [...numbered, ...els.filter((e) => !listable(e))];
+}
+
+/** Roles a person acts on or reads as a landmark. Containers repeat their whole text and only add noise. */
+const LISTED = new Set([
+  "button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "checkbox", "radio", "switch",
+  "combobox", "treeitem", "row", "textbox", "searchbox", "spinbutton", "slider", "heading", "status", "alert",
+  "gridcell", "columnheader", "tooltip", "img",
+]);
+const listable = (e: InventoryElement) =>
+  LISTED.has(e.role) && (e.role !== "img" || !!e.name) && e.width > 2 && e.height > 2;
 
 /** The page gist alone, for error messages. Never throws. */
 export async function pageGist(page: Page): Promise<PageGist | null> {
@@ -139,6 +169,25 @@ export async function pageGist(page: Page): Promise<PageGist | null> {
 const key = (e: InventoryElement) => `${e.role}|${e.name}`;
 const short = (s: string, n = 56) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const fmtEl = (e: InventoryElement) => `${e.role} ${JSON.stringify(short(e.name))}${e.disabled ? " (disabled)" : ""}`;
+
+/** A path in full, a long query string cut: the path says where a link goes. */
+const shortHref = (h: string) => {
+  const q = h.indexOf("?");
+  return q < 0 ? short(h, 80) : short(h.slice(0, q), 60) + (h.length - q > 24 ? `${h.slice(q, q + 20)}…` : h.slice(q));
+};
+
+/** One element as the agent reads it: number, what it is, and what the markup says it does. */
+export function fmtLabeled(e: InventoryElement, opts: { number?: boolean } = {}): string {
+  const bits = [opts.number !== false && e.label ? String(e.label) : "", e.role, e.name ? JSON.stringify(short(e.name)) : ""];
+  if (e.icon) bits.push(`[icon ${e.icon}]`);
+  if (e.state) bits.push(`[${e.state}]`);
+  if (e.href) bits.push(`→ ${shortHref(e.href)}`);
+  if (e.opens) bits.push(`(opens ${e.opens})`);
+  if (e.disabled) bits.push("(disabled)");
+  if (e.covered) bits.push(`(covered by ${e.covered})`);
+  if (e.offscreen) bits.push(e.offscreen === "below" ? "↓" : e.offscreen === "above" ? "↑" : e.offscreen === "left" ? "←" : "→offscreen");
+  return bits.filter(Boolean).join(" ");
+}
 
 /** What changed between two observations, as lines an agent can read at a glance. */
 export function diffObservations(a: Observation, b: Observation, limit = 14): string[] {
@@ -166,7 +215,7 @@ export function diffObservations(a: Observation, b: Observation, limit = 14): st
     out.push(`new page: ${b.elements.length} elements (run \`avr look\` to list them)`);
   } else {
     const add = uniq(added), rem = uniq(removed);
-    for (const e of add.slice(0, limit)) out.push(`+ ${fmtEl(e)}`);
+    for (const e of add.slice(0, limit)) out.push(`+ ${fmtLabeled(e)}`);
     if (add.length > limit) out.push(`+ … ${add.length - limit} more (avr look)`);
     if (rem.length <= 6) for (const e of rem) out.push(`- ${fmtEl(e)}`);
     else out.push(`- ${rem.length} elements removed`);
@@ -174,7 +223,13 @@ export function diffObservations(a: Observation, b: Observation, limit = 14): st
 
   // Same element, different enabled state: the usual sign a form became submittable.
   const wasDisabled = new Set(a.elements.filter((e) => e.disabled).map(key));
-  for (const e of b.elements) if (!e.disabled && wasDisabled.has(key(e))) out.push(`~ ${fmtEl(e)} is now enabled`);
+  for (const e of b.elements) if (!e.disabled && wasDisabled.has(key(e))) out.push(`~ ${fmtLabeled(e)} is now enabled`);
+  // A toggle, tab or field whose state changed: same element, different reading.
+  const onceBefore = new Map([...before].filter(([, n]) => n === 1).map(([k]) => [k, a.elements.find((e) => key(e) === k)!]));
+  for (const e of b.elements) {
+    const was = after.get(key(e)) === 1 ? onceBefore.get(key(e)) : undefined;
+    if (was && (was.state ?? "") !== (e.state ?? "") && !/^= /.test(e.state ?? "")) out.push(`~ ${e.label ?? ""} ${e.role} ${JSON.stringify(short(e.name))} now [${e.state ?? "no state"}]`.replace("~  ", "~ "));
+  }
 
   const newHeadings = b.headings.filter((h) => !a.headings.includes(h));
   if (newHeadings.length) out.push(`headings+: ${newHeadings.slice(0, 5).map((h) => JSON.stringify(short(h))).join(", ")}`);
@@ -185,21 +240,50 @@ export function diffObservations(a: Observation, b: Observation, limit = 14): st
   return out;
 }
 
-/** One line per element, compact enough to read a whole page. */
-export function formatObservation(o: Observation, opts: { role?: string; filter?: string } = {}): string[] {
-  const out: string[] = [`${pathOf(o.url)}  "${short(o.title, 60)}"  state ${o.fingerprint}`];
-  if (o.dialog) out.push(`dialog open: ${JSON.stringify(o.dialog.name)} — listing only what is inside it (${o.behind} behind)`);
-  if (o.headings.length) out.push(`headings: ${o.headings.slice(0, 8).map((h) => JSON.stringify(short(h, 40))).join(", ")}`);
+/**
+ * The page as the agent reads it: every element numbered, grouped by the region it sits in,
+ * with what the markup says each one does. The same numbers are drawn on the view's
+ * screenshot, and `avr do click 12` acts on number 12.
+ */
+export function formatObservation(o: Observation, opts: { role?: string; filter?: string; max?: number; all?: boolean } = {}): string[] {
+  const out: string[] = [`${pathOf(o.url)}  "${short(o.title, 60)}"`];
+  if (o.dialog) out.push(`dialog open: ${JSON.stringify(o.dialog.name)}. Only what is inside it is listed (${o.behind} elements behind it).`);
   for (const al of o.alerts.slice(0, 3)) out.push(`alert: ${JSON.stringify(short(al, 140))}`);
   const f = opts.filter?.toLowerCase();
-  const els = o.elements.filter((e) => (!opts.role || e.role === opts.role) && (!f || e.name.toLowerCase().includes(f)));
-  const seen = new Map<string, number>();
-  for (const e of els) {
-    const n = (seen.get(key(e)) ?? 0) + 1;
-    seen.set(key(e), n);
-    out.push(`  ${e.role.padEnd(9)} ${JSON.stringify(short(e.name))}${n > 1 ? ` #${n}` : ""}${e.disabled ? " (disabled)" : ""}  @${e.x + Math.round(e.width / 2)},${e.y + Math.round(e.height / 2)}`);
+  const matching = o.elements.filter((e) => e.label && (!opts.role || e.role === opts.role) && (!f || e.name.toLowerCase().includes(f) || (e.icon ?? "").includes(f)));
+  // Like a person looking at the screen: what is visible, in full. What is scrolled away is
+  // summarised, unless asked for or searched for.
+  const all = opts.all || !!f || !!opts.role;
+  const els = all ? matching : matching.filter((e) => !e.offscreen);
+  const away = all ? [] : matching.filter((e) => e.offscreen);
+  const max = opts.max ?? 160;
+  let shown = 0;
+  let region: string | undefined;
+  for (let i = 0; i < els.length && shown < max; i++) {
+    const e = els[i];
+    // A heading that is also the link next to it (a list of titles) reads once, as the link.
+    const twin = (x?: InventoryElement) => !!x && x.name === e.name && x.role !== "heading";
+    if (e.role === "heading" && (twin(els[i - 1]) || twin(els[i + 1]))) continue;
+    if (e.region !== region) {
+      region = e.region;
+      out.push(region ?? "page");
+    }
+    // A run of identical controls (a menu button on every row) reads as one line.
+    let j = i;
+    while (j + 1 < els.length && els[j + 1].region === e.region && key(els[j + 1]) === key(e) && !els[j + 1].href && !e.href) j++;
+    if (j - i >= 3) {
+      out.push(`  ${e.label}-${els[j].label} ${fmtLabeled(e, { number: false })} ×${j - i + 1}`);
+      i = j;
+    } else out.push(`  ${fmtLabeled(e)}`);
+    shown++;
   }
-  if (!els.length) out.push(`  (no interactive elements${opts.role || f ? " match the filter" : ""}) body: ${JSON.stringify(short(o.body, 200))}`);
+  if (shown >= max && els.length > max) out.push(`… more below. Narrow it: --filter <text> or --role <role>`);
+  if (!els.length) out.push(`  (no interactive elements${opts.role || f ? " match the filter" : ""}) text: ${JSON.stringify(short(o.body, 200))}`);
+  if (away.length) {
+    const heads = away.filter((e) => e.role === "heading").slice(0, 12);
+    out.push(`off screen: ${away.length} more elements${heads.length ? `. Headings: ${heads.map((h) => `${h.label} ${JSON.stringify(short(h.name, 40))}`).join(", ")}` : ""}`);
+    out.push("  `scroll-to <n>` brings one into view; `look --all` lists them.");
+  } else if (els.some((e) => e.offscreen)) out.push("↓/↑ = off screen; `scroll-to <n>` brings it into view.");
   return out;
 }
 

@@ -99,7 +99,7 @@ sessionCmd
   .description("Launch the session browser and log in once (spawns a detached daemon)")
   .option("--scenario <file>", "reuse this scenario's config and explore.setup for login")
   .option("--url <url>", "page to open after setup")
-  .option("--port <n>", "CDP debug port", String(DEFAULT_SESSION_PORT))
+  .option("--port <n>", "CDP debug port (or AVR_SESSION_PORT)", String(process.env.AVR_SESSION_PORT || DEFAULT_SESSION_PORT))
   .option("--profile <dir>", "persistent Chromium user data dir", "/tmp/avr-session")
   .option("--headed", "show the browser window")
   .action(async (o) => {
@@ -190,13 +190,14 @@ program
 
 program
   .command("look")
-  .description("List what is on the session's current page: one line per element, only the open dialog when there is one")
+  .description("Show the session's page: every element on screen numbered and grouped by region, plus a screenshot with the same numbers drawn on it")
   .option("--role <role>", "only this ARIA role")
   .option("--filter <text>", "only names containing this text")
+  .option("--all", "also list what is scrolled off screen, not only its headings")
   .option("--scenario <file>", "when no session is running, start one using this scenario's login setup")
   .action(async (o) => {
     const info = await ensureSession({ scenario: o.scenario, log });
-    printReply(await sendCommand(info, "/look", { role: o.role, filter: o.filter }));
+    printReply(await sendCommand(info, "/look", { role: o.role, filter: o.filter, all: o.all }));
   });
 
 program
@@ -480,27 +481,35 @@ const GUIDE = `avr in one screen
 
 THE LOOP (no scenario file, no selectors, no probe scripts)
   avr do goto http://localhost:3000/projects        # first command starts the browser
-  avr do click "new project"                    # plain words; prints what changed
-  avr do type "name" "acme-prod"
+  avr do click 6                                    # a number from the view below
+  avr do type 5 "acme-prod"
   avr do wait-for "Database ready" --timeout 120000 # slow server step
-  avr do zoom "heading:Query results"               # camera only
+  avr do zoom 14                                    # camera only
   avr do zoom-out
   avr session export demo.ts              # replays the path to prove it, then writes it
   avr record demo.ts                      # -> output.mp4
 
   Logged-in app: add --scenario <file with explore.setup> to the FIRST command. It logs in once.
 
-EVERY \`avr do\` PRINTS
-  the scenario line it recorded, the element it matched, what appeared (+) and disappeared (-),
-  dialogs, new headings and alerts, page errors (!), and a screenshot path. Read that instead
-  of looking again. \`avr look\` lists the whole current page when you need it
-  (--role button, --filter text). With a dialog open it lists only the dialog.
+SEEING THE PAGE
+  \`avr look\` and every \`avr do\` that lands on a new page or opens a dialog print the VIEW:
+  every element on screen, numbered, grouped by region (header, nav, sidebar, main, dialog),
+  with what the markup says it does:
+      12 link "Auth" → /projects [current]
+      31 button "More" [icon ellipsis] (opens menu)
+      40 switch "Email alerts" [off]
+  and the path of a screenshot with the same numbers drawn on it (view: /tmp/avr-view-…/007-step7.jpg).
+  Open the screenshot when the text is not enough: icons, layout, what a chart shows.
+  Off-screen content is summarised as its headings; \`scroll-to <n>\` or \`look --all\`.
+  Other steps print only what changed: + new elements (with their numbers), - removed,
+  ~ state changes, alerts, page errors (!). Numbers always refer to the latest view.
 
 TARGETS
+  12                       a number from the latest view (a control literally named "2": button:2)
   "new project"        plain words, best match wins; --nth 2 picks another; --role button narrows
   button:Create            role:name        text=Deployed     css=.monaco-editor     640,360
+  The export never writes numbers: each becomes a role+name address that survives a replay.
   Several identical elements (three "Store" cards)? The error lists text that sets each apart.
-  In a scenario: { role: "heading", name: "Store", near: "store-132023" }. Picking with --nth journals it that way for you.
 
 EXPLORING VS RECORDING
   Click around freely. Steps that end up back where they started (open a menu, close it; visit
@@ -522,12 +531,25 @@ WHEN SOMETHING FAILS
   "login page" or "not found" in that text means the wrong URL or no auth, not a wrong name.
   Nothing hangs: commands give up with a non-zero exit code. Do not wrap them in long timeouts.
 
+MCP
+  \`avr mcp\` serves all of this as MCP tools (avr_do, avr_look, avr_export, avr_dry_run, avr_record, …).
+  Each reply carries the screenshot itself, so one call acts and shows the page.
+  AVR_SESSION_PORT=9322 gives a second agent on the same machine its own browser.
+
 THE LOOK (after the export works)
   Edit the exported file's config: viewport/deviceScaleFactor (capture), output (video size,
   fps), frame (padding, background, radius), cursor, zoom, keys. \`avr render <dir>\` restyles
   an existing capture without recording again. For a sharp 4K output, capture at dpr 3.
   Waits play in real time unless wrapped: s.lapse(8, () => ...) or s.trim(() => ...).
 `;
+
+program
+  .command("mcp")
+  .description("Run avr as a local MCP server over stdio. It launches Chrome itself; every step returns the numbered view and its screenshot")
+  .action(async () => {
+    const { runMcpServer } = await import("./mcp.js");
+    await runMcpServer();
+  });
 
 program
   .command("guide")

@@ -6,7 +6,8 @@
   "license": "MIT",
   "bin": {
     "agentic-video-recording": "./dist/cli.js",
-    "avr": "./dist/cli.js"
+    "avr": "./dist/cli.js",
+    "avr-mcp": "./dist/mcp-bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

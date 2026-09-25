@@ -12,9 +12,11 @@ import { chromium, type Page } from "playwright";
 import { resolveExecutablePath, ensureChromium, SAME_TAB_SCRIPT, NAME_HELPER_SCRIPT } from "../browser.js";
 import { resolveConfig } from "../config.js";
 import type { ScenarioConfig, UserScenarioConfig } from "../types.js";
-import { writeSession } from "./session-store.js";
+import { writeSession, daemonBuild } from "./session-store.js";
 import { Session } from "./session.js";
-import { observe, diffObservations, formatObservation, formatGist, pathOf, type Observation } from "../observe.js";
+import { observe, diffObservations, formatObservation, formatGist, fmtLabeled, pathOf, type Observation } from "../observe.js";
+import type { InventoryElement } from "../inventory.js";
+import { ViewWriter } from "./view.js";
 import {
   addressFor,
   coveredBy,
@@ -49,7 +51,6 @@ const startUrl = arg("url");
 const cfg: ScenarioConfig = resolveConfig(JSON.parse(arg("config") ?? "{}") as UserScenarioConfig);
 const stateDir = dirname(sessionPath);
 const journalPath = join(stateDir, "journal.json");
-const shotsDir = join(stateDir, "shots");
 
 ensureChromium(cfg.browser);
 
@@ -121,11 +122,12 @@ const saveJournal = () => {
   writeFileSync(journalPath, JSON.stringify(journal, null, 2));
 };
 
+const build = daemonBuild();
 const publish = (extra: Record<string, unknown> = {}) =>
   writeSession(
     {
       pid: process.pid, port, controlPort, cdpUrl: `http://127.0.0.1:${port}`, userDataDir,
-      startedAt: new Date().toISOString(), scenario: setupFile, url: page.url(), ...extra,
+      startedAt: new Date().toISOString(), scenario: setupFile, url: page.url(), build, ...extra,
     },
     sessionPath,
   );
@@ -135,6 +137,38 @@ const publish = (extra: Record<string, unknown> = {}) =>
 // ---------------------------------------------------------------------------
 
 const started = Date.now();
+const views = new ViewWriter(port);
+/** The last view the agent was shown. Its numbers are what `avr do click 12` means. */
+let lastView: Observation | null = null;
+
+/** Write the view for an observation and make its numbers the current ones. */
+async function showView(obs: Observation, name: string): Promise<string | undefined> {
+  lastView = obs;
+  return views.write(context, page, obs, name).catch(() => undefined);
+}
+
+/** The view's path, and the page size it shows, so a scaled image is not mistaken for the viewport. */
+function viewLine(file: string): string {
+  const vp = page.viewportSize();
+  return `view: ${file}${vp ? ` (the ${vp.width}x${vp.height} page, scaled down)` : ""}`;
+}
+
+/**
+ * The element a number from the last view refers to. When the page has changed since, the
+ * same element is found again by what it is and where it was.
+ */
+function byNumber(obs: Observation, n: number, notes: string[]): InventoryElement {
+  if (!lastView) throw new Error(`There is no view yet for number ${n} to refer to. Run \`avr look\` first.`);
+  const was = lastView.elements.find((e) => e.label === n);
+  if (!was) throw new Error(`The last view has no number ${n} (it runs 1-${lastView.elements.length}). Run \`avr look\` for the current numbers.`);
+  if (obs.fingerprint === lastView.fingerprint) return obs.elements.find((e) => e.label === n) ?? was;
+  const same = obs.elements
+    .filter((e) => e.role === was.role && e.name === was.name)
+    .sort((a, b) => Math.hypot(a.x - was.x, a.y - was.y) - Math.hypot(b.x - was.x, b.y - was.y));
+  if (!same.length) throw new Error(`${n} was ${fmtLabeled(was, { number: false })} in the last view, and it is not on the page now. Run \`avr look\` for the current numbers.`);
+  notes.push(`the page changed since the last view; found ${n} again by its name`);
+  return same[0];
+}
 const live = new Session(page, cfg, () => Date.now() - started, { dry: true, fast: true });
 
 /** Wait for the page to stop changing after an action, without guessing a fixed sleep. */
@@ -158,6 +192,8 @@ async function settle(maxMs = 5000): Promise<boolean> {
 interface Reply {
   ok: boolean;
   lines: string[];
+  /** The numbered screenshot for this reply, when there is one. */
+  view?: string;
 }
 
 interface DoRequest {
@@ -170,6 +206,15 @@ interface DoRequest {
 }
 
 async function resolveQuery(obs: Observation, query: string, verb: Step["verb"], req: DoRequest, notes: string[]): Promise<PlainTarget> {
+  // A bare number is a label from the last view.
+  if (/^\d+$/.test(query.trim())) {
+    const el = byNumber(obs, Number(query), notes);
+    const target = await addressFor(page, el);
+    notes.unshift(`matched ${fmtLabeled(el)}`);
+    if (el.disabled) notes.push("warning: this element is disabled");
+    if (verb === "click" && el.covered) notes.push(`note: ${el.covered} sits on top of it and receives the click`);
+    return target;
+  }
   const explicit = parseExplicit(query);
   if (explicit.target) return explicit.target;
   const pick = pickElement(obs, explicit.phrase, verb, { role: req.role ?? explicit.role, nth: req.nth });
@@ -266,8 +311,21 @@ async function doCommand(req: DoRequest): Promise<Reply> {
     failure = (e as Error).message;
   }
   const camera = isCameraStep(step);
-  const settled = camera ? true : await settle();
-  const after = await observe(page);
+  let settled = camera ? true : await settle();
+  let after = await observe(page);
+  // A click or key whose effect is late (a slow client-side navigation) looks like nothing
+  // happened. Give it a moment before saying so.
+  if (!failure && (step.verb === "click" || step.verb === "press") && after.fingerprint === before.fingerprint) {
+    const until = Date.now() + 3000;
+    while (Date.now() < until && after.fingerprint === before.fingerprint) {
+      await page.waitForTimeout(250);
+      after = await observe(page);
+    }
+    if (after.fingerprint !== before.fingerprint) {
+      settled = await settle();
+      after = await observe(page);
+    }
+  }
   entry.ok = !failure;
   entry.urlAfter = after.url;
   entry.stateAfter = after.fingerprint;
@@ -279,28 +337,34 @@ async function doCommand(req: DoRequest): Promise<Reply> {
   lines.push(`${failure ? "✗" : "✓"} #${entry.id} ${code}`);
   for (const n of notes) lines.push(`  ${n}`);
   if (failure) lines.push(...failure.split("\n").map((l) => `  ${l}`));
+  let view: string | undefined;
   if (!camera) {
-    const diff = diffObservations(before, after);
     const waited = step.verb === "waitFor" || step.verb === "waitUrl";
     if (waited && !failure) lines.push(`met after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-    if (diff.length) lines.push(...diff);
-    else if (!failure && !waited) lines.push(step.verb === "click" || step.verb === "press" ? "no visible change: the page is in the same state as before (wrong element, or nothing to do?)" : "no visible change");
+    const newPage = before.url.split(/[?#]/)[0] !== after.url.split(/[?#]/)[0];
+    const dialogOpened = !!after.dialog && after.dialog.name !== before.dialog?.name;
+    if (newPage || dialogOpened) {
+      // A new page or a dialog is a new view: show all of it, numbered, instead of a diff.
+      if (newPage) lines.push(`url: ${pathOf(before.url)} -> ${pathOf(after.url)}`);
+      lines.push(...formatObservation(after));
+    } else {
+      const diff = diffObservations(before, after);
+      if (diff.length) lines.push(...diff);
+      else if (!failure && !waited) lines.push(step.verb === "click" || step.verb === "press" ? "no visible change: the page is in the same state as before (wrong element, or nothing to do?)" : "no visible change");
+    }
     if (!settled) lines.push("the page was still changing after 5s; `avr look` again, or `avr do wait-for <text>`");
-    const shot = join(shotsDir, `${String(entry.id).padStart(3, "0")}.jpg`);
-    mkdirSync(shotsDir, { recursive: true });
-    await page.screenshot({ path: shot, type: "jpeg", quality: 60, scale: "css", timeout: 5000 }).then(
-      () => lines.push(`shot: ${relative(process.cwd(), shot)}`),
-      () => {},
-    );
+    view = await showView(after, `step${entry.id}`);
+    if (view) lines.push(viewLine(view));
   }
   if (entry.detour && !failure && !camera && journal.length > 1) lines.push("(journal: back at an earlier state, so the steps since then are marked as a detour)");
   lines.push(...drainProblems());
-  return { ok: !failure, lines };
+  return { ok: !failure, lines, view };
 }
 
-async function lookCommand(req: { role?: string; filter?: string }): Promise<Reply> {
+async function lookCommand(req: { role?: string; filter?: string; all?: boolean }): Promise<Reply> {
   const obs = await observe(page);
-  return { ok: true, lines: [...formatObservation(obs, req), ...drainProblems()] };
+  const view = await showView(obs, "look");
+  return { ok: true, lines: [...formatObservation(obs, req), ...(view ? [viewLine(view)] : []), ...drainProblems()], view };
 }
 
 async function journalCommand(req: { action?: "drop" | "keep" | "setup" | "clear"; ids?: number[] }): Promise<Reply> {
@@ -473,6 +537,7 @@ publish({ ready: true, setupError });
 // Stay alive until asked to stop.
 const shutdown = async () => {
   server.close();
+  views.cleanup();
   await context.close().catch(() => {});
   process.exit(0);
 };

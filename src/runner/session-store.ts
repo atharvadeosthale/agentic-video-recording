@@ -3,7 +3,7 @@
  * logs in once, and stays alive. Later `avr` commands attach to it over CDP, so exploring
  * and inspecting a logged-in app costs nothing per call.
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
@@ -27,10 +27,16 @@ export interface SessionInfo {
   /** False while login setup is still running. */
   ready?: boolean;
   setupError?: string;
+  /** Build of the daemon that runs this session, to notice a session left over from an older avr. */
+  build?: string;
 }
 
 export const DEFAULT_SESSION_FILE = ".avr/session.json";
 export const DEFAULT_SESSION_PORT = 9222;
+
+/** The session's debugging port. AVR_SESSION_PORT gives a second agent on the same machine its own browser. */
+export const sessionPort = () => Number(process.env.AVR_SESSION_PORT || DEFAULT_SESSION_PORT);
+const profileFor = (port: number) => (port === DEFAULT_SESSION_PORT ? "/tmp/avr-session" : `/tmp/avr-session-${port}`);
 
 export function sessionFile(path?: string): string {
   return resolve(path ?? process.env.AVR_SESSION_FILE ?? DEFAULT_SESSION_FILE);
@@ -101,6 +107,15 @@ export function startSessionDaemon(opts: {
   return { pid: child.pid ?? -1 };
 }
 
+/** Identifies the installed daemon build. A running session with another value predates an update. */
+export function daemonBuild(): string {
+  try {
+    return String(Math.round(statSync(daemonEntry()).mtimeMs));
+  } catch {
+    return "unknown";
+  }
+}
+
 /** Path to this module's sibling daemon entry, resolved from the built output. */
 function daemonEntry(): string {
   const here = new URL(import.meta.url).pathname;
@@ -121,6 +136,8 @@ export type { BrowserConfig };
 export interface CommandReply {
   ok: boolean;
   lines: string[];
+  /** The numbered screenshot that goes with the reply, when there is one. */
+  view?: string;
 }
 
 /** Send a command to the daemon's control port. */
@@ -152,7 +169,11 @@ export async function waitForSession(pid: number, timeoutMs = 90000, path?: stri
  */
 export async function ensureSession(opts: { scenario?: string; url?: string; config?: UserScenarioConfig; log?: (msg: string) => void } = {}): Promise<SessionInfo> {
   const existing = readSession();
-  if (existing && existing.controlPort && (await sessionAlive(existing))) return existing;
+  if (existing && existing.controlPort && (await sessionAlive(existing))) {
+    if (existing.build !== daemonBuild())
+      opts.log?.("note: this session was started by an older avr build, so it runs the old code. `avr session stop` picks up the update (the journal starts over).");
+    return existing;
+  }
   if (existing) {
     try {
       process.kill(existing.pid, "SIGTERM");
@@ -167,8 +188,8 @@ export async function ensureSession(opts: { scenario?: string; url?: string; con
     config = { ...sc.config, ...(config ?? {}) };
   }
   const { pid } = startSessionDaemon({
-    port: DEFAULT_SESSION_PORT,
-    userDataDir: "/tmp/avr-session",
+    port: sessionPort(),
+    userDataDir: profileFor(sessionPort()),
     url: opts.url,
     setup: opts.scenario ? resolve(opts.scenario) : undefined,
     config,

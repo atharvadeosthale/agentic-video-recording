@@ -19,8 +19,8 @@ Chromium is downloaded automatically on first use via Playwright. ffmpeg ships w
 ## Quick start
 
 ```bash
-npx avr do goto http://localhost:3000   # rehearse live: every step prints what changed
-npx avr do click "get started"
+npx avr do goto http://localhost:3000   # rehearse live: prints the numbered view of the page
+npx avr do click 7                      # act by number; every step prints what changed
 npx avr session export scenario.ts      # the rehearsal becomes the scenario
 npx avr record scenario.ts              # capture + render -> recordings/<name>-<timestamp>/output.mp4
 ```
@@ -77,20 +77,66 @@ avr record demo.ts
 
 For a logged-in app, pass `--scenario <file>` on the first command. The file only needs an `explore.setup` that logs in. The session logs in once and every later command reuses it.
 
+### Seeing the page
+
+`avr look`, and every `avr do` that lands on a new page or opens a dialog, prints the view. Every element on screen gets a number and is grouped by the region it sits in. Each line also shows what the page's markup says the element does:
+
+```
+$ avr do goto http://localhost:3000/projects
+✓ #1 await s.goto("http://localhost:3000/projects");
+/projects  "Projects - Acme"
+header
+  1 link "Acme" [icon logo] → /
+  2 button "Search" [icon search] (opens dialog)
+sidebar "Project"
+  3 link "Overview" → /console/acme/overview
+  4 link "Auth" [current] → /projects
+main
+  9 heading "Auth"
+  10 tab "Users" [selected]
+  11 tab "Policies"
+  12 button "Create user"
+  13 button [icon ellipsis] (opens menu)
+  14 switch "Email alerts" [off]
+off screen: 22 more elements. Headings: 30 "Sessions", 41 "Security"
+view: /tmp/avr-view-9222/001-step1.jpg
+```
+
+The view file is a screenshot with the same numbers drawn on it. Open it when the text is not enough, for example for icons, layout or chart contents. Act by number: `avr do click 12`, `avr do type 5 "demo"`, `avr do zoom 14`. The export never writes a number. Each one becomes a role and name address, so the scenario replays after the page changes.
+
+Everything in a line is read from the markup. Nothing is clicked or hovered to learn it:
+
+- `→` is where a link goes.
+- `(opens menu)` comes from the element's `aria-haspopup` attribute.
+- `[on]`, `[selected]`, `[current]`, `[expanded]` and `[= "value"]` are the element's current state.
+- `[icon trash-2]` is the icon's class name (lucide, octicon, font awesome, material and others), which names buttons that have no text.
+- `(covered by …)` names an element that sits on top of this one and would take a click at its centre.
+
+Off-screen content is summarised as its headings. `scroll-to <n>` brings an element into view, and `look --all` lists everything. `--filter <text>` and `--role <role>` search the whole page. Views are kept in a temporary directory, which holds the last 12 and is deleted when the session stops.
+
 ### Every step reports what changed
 
 ```
-$ avr do click "create"
-✓ #6 await s.click({ role: "button", name: "Create project" });
-  matched button "Create project" at 963,248
-+ status "Creating my-demo-app…"
-alert: "Creating my-demo-app…"
-shot: .avr/shots/006.jpg
+$ avr do click 12
+✓ #6 await s.click({ role: "button", name: "Create user" });
+  matched 12 button "Create user"
++ 31 textbox "Name"
++ 32 textbox "Email"
+~ 14 switch "Email alerts" now [on]
+view: /tmp/avr-view-9222/006-step6.jpg
 ```
 
-The first line is the scenario line that was journaled. The rest is the difference from the previous page state: elements that appeared and disappeared, dialogs, new headings and alerts, a changed URL, and any page errors or failed requests. `avr look` lists the whole current page, one line per element. With a dialog open, it lists only the dialog.
+The first line is the scenario line that was journaled. The rest is what changed since the previous page state:
 
-A target is plain words (`"new project"`). The best match wins, `--nth` picks another match, and `--role` narrows the search. Explicit forms also work: `button:Create`, `text=Deployed`, `css=.monaco-editor`, `640,360`. When another element covers the target, the output says which element receives the click.
+- elements that appeared (`+`, with their numbers) or disappeared (`-`)
+- state changes (`~`)
+- dialogs, new headings and alerts
+- a changed URL
+- page errors or failed requests (`!`)
+
+A new page or a newly opened dialog prints the whole view instead. With a dialog open, the view lists only the dialog.
+
+A target is a number from the latest view, or plain words (`"new project"`). With plain words the best match wins, `--nth` picks another match, and `--role` narrows the search. Explicit forms also work: `button:Create`, `text=Deployed`, `css=.monaco-editor`, `640,360`. To reach a control whose name is a number, use `button:2`. When another element covers the target, the output says which element receives the click.
 
 ### Exploring clicks and recording clicks
 
@@ -162,6 +208,19 @@ Writing the scenario by hand still works, and the exported file is an ordinary s
 3. **`avr render <dir>`** re-renders an existing capture with a different look, size, fps or format. No browser involved.
 
 Use `--no-render` on `record` for a pure two-pass flow. `avr explore` and `avr find`, described below, inventory whole pages by URL.
+
+## MCP server
+
+`avr mcp` runs everything above as a local MCP server over stdio. It launches Chrome itself, so an agent can rehearse, export, dry-run and record without a shell. Each `avr_do` and `avr_look` reply carries the numbered screenshot itself, so one call both acts and shows the page.
+
+```bash
+claude mcp add avr -- npx avr mcp          # Claude Code
+codex mcp add avr -- npx avr mcp           # Codex
+```
+
+Tools: `avr_start` (an optional login through a scenario's `explore.setup`, headed, viewport), `avr_do`, `avr_look`, `avr_mark`, `avr_journal`, `avr_export`, `avr_dry_run` (returns the contact sheet), `avr_record` (returns the keyframe sheet), `avr_stop`. The server and the CLI share one session, so an agent can use both. The browser the server opened closes when the client disconnects. The server also binds to `avr-mcp`.
+
+To run a second session on the same machine, set a different port, for example `AVR_SESSION_PORT=9322`. It gets its own browser and profile.
 
 ## Exploring a page
 
