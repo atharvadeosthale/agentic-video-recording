@@ -63,6 +63,14 @@ To update later, run `npm i -D takeone@latest`, then `npx takeone session stop` 
 
 Verbs: `goto`, `click`, `type`, `press`, `hover`, `scroll`, `scroll-to`, `wait-for`, `wait-url`, `wait`, `zoom`, `zoom-out`.
 
+## Plan the video before opening the browser
+
+Write down the story in three to six beats before the first `goto`, for example "open Auth, create a user, show the new user in the list, zoom on its ID". Each beat should be something the viewer sees change. Then rehearse only those beats. A plan keeps the rehearsal short, because you know which clicks belong in the video and which are only looking around.
+
+- **Start from a settled page.** The recording should open on a page that is already loaded, not on a spinner. Put navigation and preparation before `mark start`, or after `mark setup` for anything the viewer shouldn't see.
+- **Prepare data before recording.** If the video needs existing items, create them in setup steps or through the app's API before rehearsing. Creating them on camera is only right when creating them is the point of the video.
+- **Aim for short.** 20 to 60 seconds per video. Two short videos are easier to get right, and easier to watch, than one long one.
+
 ## Rehearsing: read the view, act by number
 
 The first `goto` launches Chrome. Every step that reaches a new page or opens a dialog returns the **view**. The view lists every element on screen with a number, grouped by region, and says what the page's markup says each element does:
@@ -93,6 +101,37 @@ This diff is usually all you need to decide the next step, so don't call `look` 
 Targets can also be plain words (`"new project"`), `role:name` (`button:Create`), `text=Deployed`, `css=.monaco-editor`, or a point `640,360`. For a control whose name is a number, use `button:2`.
 
 Every line in the view is read from markup. takeone never clicks anything to find out what it does. That is deliberate: a Delete or Create button tried in the background would really run.
+
+## Which command when
+
+| Situation | Use | Not |
+|---|---|---|
+| Arriving on a page or opening a dialog | the view that `do` already printed | an extra `look` |
+| After a click, typing or a key press | the change report (`+`, `-`, `~`) | `look`, unless the report says the page kept changing |
+| Something you can't see in the text: an icon, a layout, a chart, whether it looks right on camera | the screenshot (inline over MCP; the `view:` path with the CLI) | guessing from names |
+| Finding something off screen or on a long page | `look --filter <text>`, then `scroll-to <n>` | scrolling blindly and looking again |
+| Acting on something in the latest view | its number (`click 12`) | retyping its name |
+| The page changed since the view you are reading, or you know the label | plain words (`click "create user"`) | a number from an older view |
+| Several controls share a name | its number, or `role:name` with `--nth`. The export addresses it by the text next to it when it can | a CSS selector |
+| Waiting for the app: a save, a deploy, provisioning | `wait-for "<text that appears>"` with a `--timeout` long enough for it | `wait <ms>`, which guesses |
+| Giving the viewer a beat to read | `wait 800` to `wait 1500` | nothing: steps back to back feel rushed |
+| Showing a result up close | `zoom <n>`, then `zoom-out` | zooming on every click, since automatic zoom already follows clicks |
+| Checking the path before export | `journal` | exporting and hoping |
+| Checking the whole video before recording | `dry-run`, then read the contact sheet | `record` first: a failed take costs minutes |
+| A quick path check while editing the scenario | `dry-run --fast` | treating a fast pass as proof the recording will pass |
+| Changing only the look (background, cursor, size) | `render <recording-dir>` with other config | recording again |
+| Finished, or after updating takeone | `session stop` | leaving the browser running |
+
+`explore` and `find` are older commands for inventorying pages by URL. The view and `look --filter` cover the same ground with less work.
+
+## Rehearse well
+
+- **Rehearse the exact path the video takes, in order.** Detours are dropped automatically, but every extra step is one more thing to review in the journal.
+- **Call `mark start` as soon as the page is where the video begins.** Everything before it stays out of the video, so it's safe to look around first.
+- **Type what the viewer should read.** Use realistic names and values ("acme-prod", not "test123"). They end up on screen.
+- **When a step fails, read the error before retrying.** It says what the page showed: a login page means the session isn't authenticated; "not found" means the URL or an ID is wrong. Retrying the same step rarely helps.
+- **Re-rehearse when the path changes, and edit the file when only timing changes.** Waits, typing speed, zoom scale and extra beats are one-line edits in the exported scenario. A different click order needs a new rehearsal and a new export.
+- **Review before you call it done.** Check the dry-run contact sheet and the keyframe sheet that `record` writes: did every beat land, is anything cut off, are there loading states on camera?
 
 ## From rehearsal to video
 
