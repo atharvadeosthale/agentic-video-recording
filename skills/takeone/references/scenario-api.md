@@ -91,13 +91,13 @@ A named target waits up to `browser.timeout` for the element to appear, so a pag
 
 ## How waits appear in the video
 
-By default a wait plays in full, in real time. A slow step such as provisioning is part of the story.
+By default a wait plays in full, in real time. A slow step such as a deploy is part of the story.
 
 ```ts
-await s.waitForURL(/\/sql/, { timeout: 300000 });            // shown in full
-await s.lapse(8, () => s.waitForURL(/\/sql/));              // 8x time-lapse
-await s.trim(() => s.waitForURL(/\/sql/));                  // cut down to idleTrim.keep
-await s.waitFor({ text: "Ready" }, { edit: "trim" });       // the same, as an option
+await s.waitFor({ text: "Deployed" }, { timeout: 300000 });  // shown in full
+await s.lapse(8, () => s.waitFor({ text: "Deployed" }));     // 8x time-lapse
+await s.trim(() => s.waitFor({ text: "Deployed" }));         // cut down to idleTrim.keep
+await s.waitFor({ text: "Deployed" }, { edit: "trim" });     // the same, as an option
 ```
 
 A cut never lands inside a zoom: the wait plays through the camera move, and only the dead time around it is dropped.

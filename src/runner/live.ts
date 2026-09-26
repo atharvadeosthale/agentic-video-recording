@@ -70,8 +70,8 @@ export interface Pick {
 
 /**
  * Choose the element an agent means by a phrase like "new project". Exact names beat
- * prefixes beat substrings, and roles that suit the verb win ties, so "PostgreSQL" picks
- * the card button rather than a label that happens to contain the word.
+ * prefixes beat substrings, and roles that suit the verb win ties, so "Deploy" picks
+ * the button rather than a label that happens to contain the word.
  */
 export function pickElement(obs: Observation, query: string, verb: Step["verb"], opts: { role?: string; nth?: number } = {}): Pick | null {
   const q = norm(query);
@@ -194,7 +194,7 @@ export async function coveredBy(page: Page, el: InventoryElement): Promise<strin
 
 /**
  * Explicit address forms, for when the agent already knows what it wants:
- * `button:New project`, `text=Deployed`, `css=#db-name`, `120,340`.
+ * `button:New project`, `text=Deployed`, `css=#project-name`, `120,340`.
  */
 export function parseExplicit(query: string): { target?: PlainTarget; role?: string; phrase: string } {
   const css = /^css=(.+)$/s.exec(query);

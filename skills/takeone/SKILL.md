@@ -65,7 +65,7 @@ Verbs: `goto`, `click`, `type`, `press`, `hover`, `scroll`, `scroll-to`, `wait-f
 
 ## Plan the video before opening the browser
 
-Write down the story in three to six beats before the first `goto`, for example "open Auth, create a user, show the new user in the list, zoom on its ID". Each beat should be something the viewer sees change. Then rehearse only those beats. A plan keeps the rehearsal short, because you know which clicks belong in the video and which are only looking around.
+Write down the story in three to six beats before the first `goto`, for example "open Projects, create a project, show it in the list, zoom on its status". Each beat should be something the viewer sees change. Then rehearse only those beats. A plan keeps the rehearsal short, because you know which clicks belong in the video and which are only looking around.
 
 - **Start from a settled page.** The recording should open on a page that is already loaded, not on a spinner. Put navigation and preparation before `mark start`, or after `mark setup` for anything the viewer shouldn't see.
 - **Prepare data before recording.** If the video needs existing items, create them in setup steps or through the app's API before rehearsing. Creating them on camera is only right when creating them is the point of the video.
@@ -78,13 +78,13 @@ The first `goto` launches Chrome. Every step that reaches a new page or opens a 
 ```
 header
   1 link "Acme" [icon logo] → /
-sidebar "Project"
-  4 link "Auth" [current] → /projects
+sidebar "Workspace"
+  4 link "Projects" [current] → /projects
 main
-  12 button "Create user"
+  12 button "New project"
   13 button [icon ellipsis] (opens menu)
   14 switch "Email alerts" [off]
-off screen: 22 more elements. Headings: 30 "Sessions", 41 "Security"
+off screen: 22 more elements. Headings: 30 "Members", 41 "Billing"
 ```
 
 A screenshot comes with the view, with the same numbers drawn on it. MCP attaches the image; the CLI prints its path. Read the text first. Open the screenshot when the text can't answer the question: layout, icons, charts, or whether something looks right on camera. Then act by number: `click 12`, `type 5 "acme-prod"`, `zoom 14`. Numbers refer to the most recent view.
@@ -111,7 +111,7 @@ Every line in the view is read from markup. takeone never clicks anything to fin
 | Something you can't see in the text: an icon, a layout, a chart, whether it looks right on camera | the screenshot (inline over MCP; the `view:` path with the CLI) | guessing from names |
 | Finding something off screen or on a long page | `look --filter <text>`, then `scroll-to <n>` | scrolling blindly and looking again |
 | Acting on something in the latest view | its number (`click 12`) | retyping its name |
-| The page changed since the view you are reading, or you know the label | plain words (`click "create user"`) | a number from an older view |
+| The page changed since the view you are reading, or you know the label | plain words (`click "new project"`) | a number from an older view |
 | Several controls share a name | its number, or `role:name` with `--nth`. The export addresses it by the text next to it when it can | a CSS selector |
 | Waiting for the app: a save, a deploy, provisioning | `wait-for "<text that appears>"` with a `--timeout` long enough for it | `wait <ms>`, which guesses |
 | Giving the viewer a beat to read | `wait 800` to `wait 1500` | nothing: steps back to back feel rushed |

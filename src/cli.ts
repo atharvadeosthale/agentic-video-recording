@@ -536,7 +536,7 @@ THE LOOP (no scenario file, no selectors, no probe scripts)
   takeone do goto http://localhost:3000/projects        # first command starts the browser
   takeone do click 6                                    # a number from the view below
   takeone do type 5 "acme-prod"
-  takeone do wait-for "Database ready" --timeout 120000 # slow server step
+  takeone do wait-for "Deployed" --timeout 120000       # slow server step
   takeone do zoom 14                                    # camera only
   takeone do zoom-out
   takeone session export demo.ts              # replays the path to prove it, then writes it
@@ -548,7 +548,7 @@ SEEING THE PAGE
   \`takeone look\` and every \`takeone do\` that lands on a new page or opens a dialog print the VIEW:
   every element on screen, numbered, grouped by region (header, nav, sidebar, main, dialog),
   with what the markup says it does:
-      12 link "Auth" → /projects [current]
+      12 link "Projects" → /projects [current]
       31 button "More" [icon ellipsis] (opens menu)
       40 switch "Email alerts" [off]
   and the path of a screenshot with the same numbers drawn on it (view: /tmp/takeone-view-…/007-step7.jpg).
@@ -559,10 +559,10 @@ SEEING THE PAGE
 
 TARGETS
   12                       a number from the latest view (a control literally named "2": button:2)
-  "new project"        plain words, best match wins; --nth 2 picks another; --role button narrows
+  "new project"            plain words, best match wins; --nth 2 picks another; --role button narrows
   button:Create            role:name        text=Deployed     css=.monaco-editor     640,360
   The export never writes numbers: each becomes a role+name address that survives a replay.
-  Several identical elements (three "Store" cards)? The error lists text that sets each apart.
+  Several identical elements (three "Delete" buttons)? The error lists text that sets each apart.
 
 EXPLORING VS RECORDING
   Click around freely. Steps that end up back where they started (open a menu, close it; visit

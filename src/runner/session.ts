@@ -340,8 +340,8 @@ export class Session {
    * be shown rather than trimmed:
    *
    * ```ts
-   * await s.hold("keep", () => s.waitForURL(/sql/, { timeout: 300000 }));   // real time
-   * await s.hold(8,      () => s.waitForURL(/sql/, { timeout: 300000 }));   // 8x time-lapse
+   * await s.hold("keep", () => s.waitFor({ text: "Deployed" }, { timeout: 300000 }));   // real time
+   * await s.hold(8,      () => s.waitFor({ text: "Deployed" }, { timeout: 300000 }));   // 8x time-lapse
    * ```
    */
   async hold<T>(edit: WaitEdit, fn: () => Promise<T> | T): Promise<T> {
